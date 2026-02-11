@@ -1,6 +1,9 @@
+
+require "json"
+
 module Kemal::OpenAPI
   class Schema
-    property type : String
+    property type : String | Array(String)
     property format : String?
     property items : Schema?
     property properties : Hash(String, Schema)?
@@ -50,10 +53,21 @@ module Kemal::OpenAPI
         if r = @ref
           builder.field("$ref", r)
         else
-          builder.field("type", @type)
+          # OpenAPI 3.1: nullable is deprecated, use type array with "null"
+          if @nullable
+            if @type.is_a?(String)
+              builder.field("type", [@type, "null"])
+            else
+              types = @type.as(Array(String))
+              builder.field("type", types.includes?("null") ? types : types + ["null"])
+            end
+          else
+            builder.field("type", @type)
+          end
+          
           builder.field("format", @format) if @format
           builder.field("description", @description) if @description
-          builder.field("nullable", @nullable) if @nullable
+          # builder.field("nullable", @nullable) if @nullable # Removed for 3.1
 
           if items = @items
             builder.field("items") { items.to_json(builder) }

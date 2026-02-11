@@ -24,7 +24,7 @@ module Kemal::OpenAPI
     def to_json : String
       JSON.build do |json|
         json.object do
-          json.field("openapi", "3.0.3")
+          json.field("openapi", "3.1.0")
 
           json.field("info") { @info.to_json(json) }
 

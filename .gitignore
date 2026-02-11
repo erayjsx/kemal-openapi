@@ -6,3 +6,5 @@
 shard.lock
 *.o
 *.a
+
+.DS_Store

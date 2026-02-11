@@ -1,12 +1,12 @@
 name: kemal-openapi
-version: 0.1.0
+version: 0.2.0
 
 authors:
   - Eray can Topcu <erayjsx@gmail.com>
 
 description: |
-  OpenAPI 3.0 documentation generator for Kemal.
-  Automatically generates Swagger/OpenAPI specs from annotations and serves Swagger UI.
+  OpenAPI 3.1 documentation generator for Kemal.
+  Automatically generates Swagger/OpenAPI specs from annotations, validates requests, and serves Swagger UI.
 
 dependencies:
   kemal:

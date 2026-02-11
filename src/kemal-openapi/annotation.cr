@@ -1,26 +1,20 @@
+
 module Kemal::OpenAPI
-  # Global registry that collects all documented operations at compile time.
-  # Operations are registered via the `openapi` macro at the top-level DSL.
-  OPERATIONS = [] of Operation
-
-  # Schema registry for reusable component schemas.
-  SCHEMAS = Hash(String, Schema).new
-
-  # Security scheme registry.
-  SECURITY_SCHEMES = Hash(String, SecurityScheme).new
-
-  # Register an operation into the global registry.
-  def self.register(operation : Operation)
-    OPERATIONS << operation
+  # Annotation for defining OpenAPI operations on routes.
+  #
+  # Usage:
+  # ```crystal
+  # @[OpenAPI(summary: "List users", tags: ["Users"])]
+  # get "/users" do ... end
+  # ```
+  annotation OpenAPI
   end
 
-  # Register a reusable schema component.
-  def self.register_schema(name : String, schema : Schema)
-    SCHEMAS[name] = schema
+  # Internal annotation used by macros to track route metadata.
+  annotation Internal
   end
+end
 
-  # Register a security scheme.
-  def self.register_security_scheme(name : String, scheme : SecurityScheme)
-    SECURITY_SCHEMES[name] = scheme
-  end
+# Alias for top-level usage
+annotation OpenAPI
 end

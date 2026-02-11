@@ -1,18 +1,18 @@
+
 # kemal-openapi
 
-OpenAPI 3.0 documentation generator for [Kemal](https://kemalcr.com). Automatically generates Swagger/OpenAPI specs and serves Swagger UI & ReDoc.
+OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Automatically generates Swagger/OpenAPI specs, validates requests at runtime, and serves Swagger UI & ReDoc.
 
 ## Features
 
-- OpenAPI 3.0.3 spec generation
-- Built-in Swagger UI at `/docs`
-- Built-in ReDoc at `/redoc`
+- **OpenAPI 3.1.0** spec generation
+- **Annotation-based** route definitions (`@[OpenAPI(...)]`)
+- **Runtime Request Validation** (automatically validates request body against schema)
+- Built-in **Swagger UI** at `/docs`
+- Built-in **ReDoc** at `/redoc`
 - JSON spec endpoint at `/openapi.json`
 - Schema components & `$ref` support
 - Security schemes (Bearer, API Key, OAuth2)
-- Path parameter auto-detection (`:id` -> `{id}`)
-- Spec caching with manual invalidation
-- DSL helpers for rapid development
 - Compile-time schema generation from `JSON::Serializable` types
 
 ## Installation
@@ -31,29 +31,65 @@ shards install
 
 ## Quick Start
 
+### 1. Define your models
+
 ```crystal
-require "kemal"
+require "json"
 require "kemal-openapi"
 
-# Register an operation
-Kemal::OpenAPI.register(
-  Kemal::OpenAPI::Operation.new(
-    method: "get",
-    path: "/api/users",
-    summary: "List all users",
-    tags: ["Users"],
-    responses: {
-      "200" => Kemal::OpenAPI::Response.new(status_code: 200, description: "User list"),
-      "401" => Kemal::OpenAPI::Response.new(status_code: 401, description: "Unauthorized"),
-    }
-  )
-)
-
-get "/api/users" do |env|
-  env.response.content_type = "application/json"
-  [{ "id": 1, "name": "Eray" }].to_json
+class User
+  include JSON::Serializable
+  property id : Int32
+  property name : String
+  property email : String
 end
 
+# Register the schema for reuse
+Kemal::OpenAPI.register_schema("User", Kemal::OpenAPI.schema_for(User))
+```
+
+### 2. Annotate your routes
+
+```crystal
+require "kemal"
+
+@[OpenAPI(
+  summary: "Create user",
+  tags: ["Users"],
+  request_body: {
+    description: "User data",
+    schema: "User", # References the registered "User" schema
+    required: true
+  },
+  responses: {
+    201: {description: "User created", schema: "User"},
+    422: {description: "Validation error"}
+  }
+)]
+post "/users" do |env|
+  # If execution reaches here, the request body is GUARANTEED to be valid
+  # according to the "User" schema.
+  
+  user = User.from_json(env.request.body.not_nil!)
+  env.response.status_code = 201
+  user.to_json
+end
+
+@[OpenAPI(
+  summary: "List users",
+  tags: ["Users"],
+  responses: {
+    200: {description: "List of users", schema: Kemal::OpenAPI.array_of("User")}
+  }
+)]
+get "/users" do |env|
+  [{id: 1, name: "Alice", email: "alice@example.com"}].to_json
+end
+```
+
+### 3. Setup and Run
+
+```crystal
 # Enable OpenAPI docs
 Kemal::OpenAPI.setup(
   title: "My API",
@@ -68,153 +104,32 @@ Then visit:
 - **ReDoc**: http://localhost:3000/redoc
 - **JSON Spec**: http://localhost:3000/openapi.json
 
-## Usage
+## Automatic Validation
 
-### Defining Schemas
+When you define a `request_body` with a schema in your annotation, `kemal-openapi` automatically validates incoming requests **before** your route handler is executed.
 
-```crystal
-# Manual schema
-user_schema = Kemal::OpenAPI::Schema.new(
-  type: "object",
-  properties: {
-    "id"    => Kemal::OpenAPI::Schema.new(type: "integer", format: "int32"),
-    "name"  => Kemal::OpenAPI::Schema.new(type: "string"),
-    "email" => Kemal::OpenAPI::Schema.new(type: "string", format: "email"),
-    "role"  => Kemal::OpenAPI::Schema.new(type: "string", enum_values: ["admin", "user"]),
-  },
-  required: ["id", "name", "email"]
-)
+If the validation fails (e.g. missing required fields, wrong data types), the server automatically responds with:
+- **Status**: `400 Bad Request` (invalid JSON) or `422 Unprocessable Entity` (schema validation failure)
+- **Body**: `{"error": "validation_error", "message": "..."}`
 
-# Register as a reusable component
-Kemal::OpenAPI.register_schema("User", user_schema)
-```
+You don't need to write manual validation code for your schemas!
 
-#### Auto-generate from JSON::Serializable
+## Manual Usage (DSL)
 
-```crystal
-class User
-  include JSON::Serializable
-  property id : Int32
-  property name : String
-  property email : String
-  property bio : String?
-end
-
-# Macro generates schema from type info
-schema = Kemal::OpenAPI.schema_for(User)
-Kemal::OpenAPI.register_schema("User", schema)
-```
-
-### DSL Helpers
-
-```crystal
-# $ref shortcuts
-Kemal::OpenAPI.ref("User")           # => {"$ref": "#/components/schemas/User"}
-Kemal::OpenAPI.array_of("User")      # => {"type": "array", "items": {"$ref": "..."}}
-
-# Quick parameter creation
-Kemal::OpenAPI.param("page", type: "integer", description: "Page number")
-Kemal::OpenAPI.param("id", location: "path", type: "integer")  # auto-required
-
-# Quick response map
-Kemal::OpenAPI.responses({200 => "OK", 404 => "Not Found"})
-
-# Security scheme helpers
-Kemal::OpenAPI.bearer_auth("JWT token")
-Kemal::OpenAPI.api_key_auth(name: "X-API-Key", location: "header")
-```
-
-### Request Body
+If you prefer not to use annotations, you can still use the manual registration API:
 
 ```crystal
 Kemal::OpenAPI.register(
   Kemal::OpenAPI::Operation.new(
-    method: "post",
+    method: "get",
     path: "/api/users",
-    summary: "Create user",
+    summary: "List all users",
     tags: ["Users"],
-    request_body: Kemal::OpenAPI::RequestBody.new(
-      description: "User data",
-      schema: Kemal::OpenAPI.ref("CreateUser")
-    ),
     responses: {
-      "201" => Kemal::OpenAPI::Response.new(
-        status_code: 201,
-        description: "Created",
-        schema: Kemal::OpenAPI.ref("User")
-      ),
+      "200" => Kemal::OpenAPI::Response.new(status_code: 200, description: "User list"),
     }
   )
 )
-```
-
-### Security
-
-```crystal
-# Register security scheme
-Kemal::OpenAPI.register_security_scheme("bearerAuth",
-  Kemal::OpenAPI.bearer_auth
-)
-
-# Apply globally
-Kemal::OpenAPI.setup(
-  title: "My API",
-  version: "1.0.0",
-  global_security: [{"bearerAuth" => [] of String}]
-)
-
-# Or per-operation
-Kemal::OpenAPI::Operation.new(
-  # ...
-  security: [{"bearerAuth" => [] of String}]
-)
-```
-
-### Advanced Configuration
-
-```crystal
-Kemal::OpenAPI.configure do |config|
-  config.info = Kemal::OpenAPI::Info.new(
-    title: "My API",
-    version: "2.0.0",
-    description: "Full API documentation",
-    contact: Kemal::OpenAPI::Contact.new(
-      name: "Dev Team",
-      email: "dev@example.com"
-    ),
-    license: Kemal::OpenAPI::License.new(name: "MIT")
-  )
-
-  config.servers = [
-    Kemal::OpenAPI::Server.new(url: "https://api.example.com", description: "Production"),
-    Kemal::OpenAPI::Server.new(url: "http://localhost:3000", description: "Development"),
-  ]
-
-  config.tags = [
-    Kemal::OpenAPI::Tag.new(name: "Users", description: "User operations"),
-    Kemal::OpenAPI::Tag.new(name: "Auth", description: "Authentication"),
-  ]
-end
-```
-
-### Custom Paths
-
-```crystal
-Kemal::OpenAPI.setup(
-  title: "My API",
-  version: "1.0.0",
-  spec_path: "/api/v1/openapi.json",
-  docs_path: "/api/v1/docs",
-  redoc_path: "/api/v1/redoc"
-)
-```
-
-## Example
-
-See [example/app.cr](example/app.cr) for a full working example with CRUD operations, schemas, and security.
-
-```sh
-crystal run example/app.cr
 ```
 
 ## Development

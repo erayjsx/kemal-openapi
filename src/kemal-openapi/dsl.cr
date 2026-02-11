@@ -73,7 +73,7 @@ module Kemal::OpenAPI
   def self.param(
     name : String,
     location : String = "query",
-    type : String = "string",
+    type : String | Array(String) = "string",
     format : String? = nil,
     description : String? = nil,
     required : Bool? = nil

@@ -300,4 +300,4 @@ puts " ReDoc:        http://localhost:3000/redoc"
 puts " OpenAPI JSON: http://localhost:3000/openapi.json"
 puts "==================================="
 
-Kemal.run
+Kemal.run(3005)

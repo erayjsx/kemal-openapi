@@ -7,14 +7,17 @@ require "./kemal-openapi/models/parameter"
 require "./kemal-openapi/models/response"
 require "./kemal-openapi/models/operation"
 require "./kemal-openapi/models/security"
+require "./kemal-openapi/registry"
 require "./kemal-openapi/annotation"
+require "./kemal-openapi/validator"
 require "./kemal-openapi/builder"
 require "./kemal-openapi/handler"
 require "./kemal-openapi/ui/swagger_ui"
 require "./kemal-openapi/dsl"
+require "./kemal-openapi/macros"
 
 module Kemal::OpenAPI
-  VERSION = "0.1.0"
+  VERSION = "0.2.0"
 
   @@handler : Handler? = nil
 
@@ -30,6 +33,7 @@ module Kemal::OpenAPI
   def self.configure(&) : Handler
     handler = Handler.new
     yield handler.builder
+    register_discovered_operations
     setup_handler(handler)
     handler
   end
@@ -66,6 +70,8 @@ module Kemal::OpenAPI
     handler.builder.servers = servers
     handler.builder.tags = tags
     handler.builder.global_security = global_security
+    
+    register_discovered_operations
     setup_handler(handler)
     handler
   end
