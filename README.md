@@ -153,4 +153,9 @@ crystal spec
 
 ## License
 
+
+## Acknowledgments
+
+Thanks to the Crystal and Kemal communities for their support.
+
 MIT
