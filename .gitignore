@@ -7,4 +7,6 @@ shard.lock
 *.o
 *.a
 
+*.tmp
+*.log
 .DS_Store
