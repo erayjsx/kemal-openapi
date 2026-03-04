@@ -13,8 +13,18 @@ module Kemal::OpenAPI
 
   # Register an operation into the global registry.
   def self.register(operation : Operation)
-    OPERATIONS << operation
     key = "#{operation.method.upcase} #{operation.path}"
+
+    if OPERATIONS_MAP.has_key?(key)
+      if idx = OPERATIONS.index { |op| "#{op.method.upcase} #{op.path}" == key }
+        OPERATIONS[idx] = operation
+      else
+        OPERATIONS << operation
+      end
+    else
+      OPERATIONS << operation
+    end
+
     OPERATIONS_MAP[key] = operation
   end
 

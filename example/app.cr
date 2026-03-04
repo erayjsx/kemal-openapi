@@ -29,6 +29,8 @@ USERS = [
 ]
 
 START_TIME = Time.instant
+PORT = (ENV["PORT"]? || "3000").to_i
+BASE_URL = "http://localhost:#{PORT}"
 
 # ============================================================
 # Schema definitions
@@ -285,7 +287,7 @@ Kemal::OpenAPI.setup(
   description: "A sample user management API built with Kemal.\n\n" \
                "This API demonstrates how to use the kemal-openapi library.",
   servers: [
-    Kemal::OpenAPI::Server.new(url: "http://localhost:3000", description: "Development"),
+    Kemal::OpenAPI::Server.new(url: BASE_URL, description: "Development"),
   ],
   tags: [
     Kemal::OpenAPI::Tag.new(name: "Users", description: "User operations"),
@@ -295,9 +297,9 @@ Kemal::OpenAPI.setup(
 )
 
 puts "==================================="
-puts " Swagger UI:   http://localhost:3000/docs"
-puts " ReDoc:        http://localhost:3000/redoc"
-puts " OpenAPI JSON: http://localhost:3000/openapi.json"
+puts " Swagger UI:   #{BASE_URL}/docs"
+puts " ReDoc:        #{BASE_URL}/redoc"
+puts " OpenAPI JSON: #{BASE_URL}/openapi.json"
 puts "==================================="
 
-Kemal.run(3005)
+Kemal.run(PORT)

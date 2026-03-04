@@ -12,7 +12,7 @@ describe Kemal::OpenAPI::Builder do
     builder.info = Kemal::OpenAPI::Info.new(title: "Test", version: "1.0.0")
 
     json = JSON.parse(builder.to_json)
-    json["openapi"].as_s.should eq("3.0.3")
+    json["openapi"].as_s.should eq("3.1.0")
     json["info"]["title"].as_s.should eq("Test")
     json["info"]["version"].as_s.should eq("1.0.0")
     json["paths"].as_h.should be_empty

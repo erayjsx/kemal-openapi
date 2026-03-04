@@ -41,7 +41,7 @@ describe Kemal::OpenAPI::Handler do
     headers["Access-Control-Allow-Origin"].should eq("*")
 
     json = JSON.parse(body)
-    json["openapi"].as_s.should eq("3.0.3")
+    json["openapi"].as_s.should eq("3.1.0")
     json["info"]["title"].as_s.should eq("Test")
     json["paths"]["/api/health"]["get"]["summary"].as_s.should eq("Health check")
   end

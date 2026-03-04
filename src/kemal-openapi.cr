@@ -17,7 +17,7 @@ require "./kemal-openapi/dsl"
 require "./kemal-openapi/macros"
 
 module Kemal::OpenAPI
-  VERSION = "0.2.0"
+  VERSION = "0.3.0"
 
   @@handler : Handler? = nil
 
@@ -31,10 +31,21 @@ module Kemal::OpenAPI
   # end
   # ```
   def self.configure(&) : Handler
-    handler = Handler.new
+    handler =
+      if current = @@handler
+        acquire_handler(
+          current.spec_path,
+          current.docs_path,
+          current.redoc_path
+        )
+      else
+        acquire_handler("/openapi.json", "/docs", "/redoc")
+      end
+
+    handler.builder = Builder.new
     yield handler.builder
     register_discovered_operations
-    setup_handler(handler)
+    handler.invalidate_cache!
     handler
   end
 
@@ -57,11 +68,12 @@ module Kemal::OpenAPI
     tags : Array(Tag) = [] of Tag,
     global_security : Array(Hash(String, Array(String)))? = nil
   ) : Handler
-    handler = Handler.new(
+    handler = acquire_handler(
       spec_path: spec_path,
       docs_path: docs_path,
       redoc_path: redoc_path
     )
+    handler.builder = Builder.new
     handler.builder.info = Info.new(
       title: title,
       version: version,
@@ -72,7 +84,7 @@ module Kemal::OpenAPI
     handler.builder.global_security = global_security
     
     register_discovered_operations
-    setup_handler(handler)
+    handler.invalidate_cache!
     handler
   end
 
@@ -81,8 +93,32 @@ module Kemal::OpenAPI
     @@handler
   end
 
-  private def self.setup_handler(handler : Handler)
-    @@handler = handler
-    add_handler handler
+  private def self.acquire_handler(
+    spec_path : String,
+    docs_path : String,
+    redoc_path : String?
+  ) : Handler
+    if handler = @@handler
+      handler.spec_path = spec_path
+      handler.docs_path = docs_path
+      handler.redoc_path = redoc_path
+      ensure_handler_registered(handler)
+      handler
+    else
+      handler = Handler.new(
+        spec_path: spec_path,
+        docs_path: docs_path,
+        redoc_path: redoc_path
+      )
+      @@handler = handler
+      ensure_handler_registered(handler)
+      handler
+    end
+  end
+
+  private def self.ensure_handler_registered(handler : Handler)
+    unless Kemal::Config::CUSTOM_HANDLERS.any? { |_, existing| existing.same?(handler) }
+      Kemal.config.add_handler(handler)
+    end
   end
 end

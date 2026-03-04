@@ -17,12 +17,18 @@ OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Automatica
 
 ## Installation
 
+### Requirements
+
+- Crystal `>= 1.19.1`
+- Kemal `~> 1.10.0`
+
 Add to your `shard.yml`:
 
 ```yaml
 dependencies:
   kemal-openapi:
     github: erayjsx/kemal-openapi
+    version: ~> 0.3.0
 ```
 
 ```sh
@@ -62,8 +68,8 @@ require "kemal"
     required: true
   },
   responses: {
-    201: {description: "User created", schema: "User"},
-    422: {description: "Validation error"}
+    201 => {description: "User created", schema: "User"},
+    422 => {description: "Validation error"}
   }
 )]
 post "/users" do |env|
@@ -79,11 +85,45 @@ end
   summary: "List users",
   tags: ["Users"],
   responses: {
-    200: {description: "List of users", schema: Kemal::OpenAPI.array_of("User")}
+    200 => {description: "List of users", schema: Kemal::OpenAPI.array_of("User")}
   }
 )]
 get "/users" do |env|
   [{id: 1, name: "Alice", email: "alice@example.com"}].to_json
+end
+```
+
+## v0.3.0 Notes
+
+- `Kemal::OpenAPI.setup` and `.configure` are idempotent. Calling them repeatedly no longer duplicates handlers or discovered operations.
+- Missing `$ref` schemas now fail validation with `422` instead of being silently ignored.
+- Route declarations must start with `/` (same behavior as Kemal DSL).
+- In annotation responses, a string value is treated as `description` only:
+
+```crystal
+@[OpenAPI(
+  responses: {
+    200 => "OK"
+  }
+)]
+```
+
+### Kemal 1.10 Quick Snippets
+
+```crystal
+# 1) Modular router + namespace + mount
+api = Kemal::Router.new
+api.namespace "/users" do
+  get "/" { |env| env.json({users: ["alice", "bob"]}) }
+end
+mount "/api/v1", api
+
+# 2) Path-specific middleware
+use "/api", [AuthHandler.new, RateLimiter.new]
+
+# 3) Response helpers
+post "/users" do |env|
+  env.status(:created).json({id: 1, created: true})
 end
 ```
 

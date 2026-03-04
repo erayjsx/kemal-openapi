@@ -64,8 +64,7 @@ module Kemal::OpenAPI
           validate_schema(json, resolved)
           return
         else
-          # Schema not found, skip validation
-          return 
+          raise "Schema reference not found: #{ref}"
         end
       end
 

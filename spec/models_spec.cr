@@ -52,7 +52,9 @@ describe Kemal::OpenAPI::Schema do
   it "generates nullable schema" do
     schema = Kemal::OpenAPI::Schema.new(type: "string", nullable: true)
     json = JSON.parse(JSON.build { |b| schema.to_json(b) })
-    json["nullable"].as_bool.should be_true
+    types = json["type"].as_a.map(&.as_s)
+    types.should contain("string")
+    types.should contain("null")
   end
 end
 

@@ -18,6 +18,8 @@ require "kemal"
     def openapi_internal_def_{{method.id}}_\{\{path.id.gsub(/\//, "_S_").gsub(/:/, "_C_").gsub(/-/, "_D_").gsub(/\./, "_P_").gsub(/[^a-zA-Z0-9_]/, "_")}}
     end
 
+    raise Kemal::Exceptions::InvalidPathStartException.new({{method}}, \{{path}}) unless Kemal::Utils.path_starts_with_slash?(\{{path}})
+
     Kemal::RouteHandler::INSTANCE.add_route({{method.upcase}}, \{{path}}) do |env|
       unless Kemal::OpenAPI::Validator.validate(env, {{method.upcase}}, \{{path}})
         next
@@ -91,10 +93,19 @@ macro finished
                         status_code: {{code.is_a?(NumberLiteral) ? code : 200}}, # Default or parse
                         {% if value.is_a?(StringLiteral) %}
                           description: {{value}},
-                          schema: Kemal::OpenAPI.ref({{value}}) # Assume string is ref if looks like type? Or just description?
                         {% elsif value.is_a?(NamedTupleLiteral) %}
                           description: {{value[:description] || "Response"}},
-                          schema: {{value[:schema] ? "Kemal::OpenAPI.ref(#{value[:schema]})".id : nil}}
+                          schema: {{
+                            if value[:schema]
+                              if value[:schema].is_a?(StringLiteral)
+                                "Kemal::OpenAPI.ref(#{value[:schema]})".id
+                              else
+                                value[:schema]
+                              end
+                            else
+                              nil
+                            end
+                          }}
                         {% end %}
                       ),
                     {% end %}
