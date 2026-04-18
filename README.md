@@ -20,7 +20,7 @@ OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Automatica
 ### Requirements
 
 - Crystal `>= 1.19.1`
-- Kemal `~> 1.10.0`
+- Kemal `~> 1.11`
 
 Add to your `shard.yml`:
 
@@ -28,7 +28,7 @@ Add to your `shard.yml`:
 dependencies:
   kemal-openapi:
     github: erayjsx/kemal-openapi
-    version: ~> 0.3.0
+    version: ~> 0.4.0
 ```
 
 ```sh
@@ -93,38 +93,25 @@ get "/users" do |env|
 end
 ```
 
-## v0.3.0 Notes
+## v0.4.0 Notes
 
+- Requires Kemal `~> 1.11` (supports 1.10.1 and 1.11.0+)
 - `Kemal::OpenAPI.setup` and `.configure` are idempotent. Calling them repeatedly no longer duplicates handlers or discovered operations.
 - Missing `$ref` schemas now fail validation with `422` instead of being silently ignored.
 - Route declarations must start with `/` (same behavior as Kemal DSL).
-- In annotation responses, a string value is treated as `description` only:
+- New `setup` parameters for Kemal 1.10.1+ and 1.11.0+ features:
 
 ```crystal
-@[OpenAPI(
-  responses: {
-    200 => "OK"
-  }
-)]
-```
-
-### Kemal 1.10 Quick Snippets
-
-```crystal
-# 1) Modular router + namespace + mount
-api = Kemal::Router.new
-api.namespace "/users" do
-  get "/" { |env| env.json({users: ["alice", "bob"]}) }
-end
-mount "/api/v1", api
-
-# 2) Path-specific middleware
-use "/api", [AuthHandler.new, RateLimiter.new]
-
-# 3) Response helpers
-post "/users" do |env|
-  env.status(:created).json({id: 1, created: true})
-end
+Kemal::OpenAPI.setup(
+  title: "My API",
+  version: "1.0.0",
+  # Kemal 1.10.1+: graceful shutdown — wait for in-flight requests before exit
+  shutdown_timeout: 10.seconds,
+  # Kemal 1.11.0+: max multipart form field size (default: 8MB)
+  max_multipart_form_field_size: 16 * 1024 * 1024,
+  # Kemal 1.11.0+: restrict WebSocket connections to allowed origins
+  websocket_allowed_origins: ["https://myapp.com", "http://localhost:3000"]
+)
 ```
 
 ### 3. Setup and Run

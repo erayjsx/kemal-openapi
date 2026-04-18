@@ -17,7 +17,7 @@ require "./kemal-openapi/dsl"
 require "./kemal-openapi/macros"
 
 module Kemal::OpenAPI
-  VERSION = "0.3.0"
+  VERSION = "0.4.0"
 
   @@handler : Handler? = nil
 
@@ -66,7 +66,11 @@ module Kemal::OpenAPI
     redoc_path : String? = "/redoc",
     servers : Array(Server) = [] of Server,
     tags : Array(Tag) = [] of Tag,
-    global_security : Array(Hash(String, Array(String)))? = nil
+    global_security : Array(Hash(String, Array(String)))? = nil,
+    max_request_body_size : Int32? = nil,
+    shutdown_timeout : Time::Span? = nil,
+    max_multipart_form_field_size : Int32? = nil,
+    websocket_allowed_origins : Array(String)? = nil
   ) : Handler
     handler = acquire_handler(
       spec_path: spec_path,
@@ -82,7 +86,12 @@ module Kemal::OpenAPI
     handler.builder.servers = servers
     handler.builder.tags = tags
     handler.builder.global_security = global_security
-    
+
+    Kemal.config.max_request_body_size = max_request_body_size if max_request_body_size
+    Kemal.config.shutdown_timeout = shutdown_timeout if shutdown_timeout
+    Kemal.config.max_multipart_form_field_size = max_multipart_form_field_size if max_multipart_form_field_size
+    Kemal.config.websocket_allowed_origins = websocket_allowed_origins if websocket_allowed_origins
+
     register_discovered_operations
     handler.invalidate_cache!
     handler
