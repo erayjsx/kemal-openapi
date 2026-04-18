@@ -8,10 +8,7 @@ shard.lock
 *.a
 
 .DS_Store
-
 .claude/
-.gitignore
-.git/
 .idea/
 .vscode/
 *.log
