@@ -14,7 +14,7 @@ jobs:
       matrix:
         crystal: ["1.19.1", latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: crystal-lang/install-crystal@v1
         with:
           crystal: ${{ matrix.crystal }}

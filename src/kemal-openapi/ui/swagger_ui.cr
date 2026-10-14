@@ -1,6 +1,6 @@
 module Kemal::OpenAPI
   module SwaggerUI
-    SWAGGER_UI_VERSION = "5.18.2"
+    SWAGGER_UI_VERSION = "5.33.1"
     REDOC_VERSION      = "2.5.4"
 
     def self.html(spec_url : String = "/openapi.json", title : String = "API Documentation") : String

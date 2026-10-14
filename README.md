@@ -16,7 +16,7 @@ OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Describe y
 
 ## Installation
 
-Requirements: Crystal `>= 1.19.1` and Kemal `~> 1.11`.
+Requirements: Crystal `>= 1.19.1` and Kemal `~> 1.14`.
 
 Add the dependency to your `shard.yml`:
 

@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- Requires Kemal `~> 1.14` (was `~> 1.11`).
+- Swagger UI updated from 5.18.2 to 5.33.1.
 - `Schema#type` is now nilable. When it is not set, `"object"` is still emitted unless the schema is a `$ref`, `enum` or pure `oneOf`/`anyOf`/`allOf`.
 - `Response#status_code` is now `Int32?` (`nil` for `default` and range responses).
 - The docs handler only answers `GET` and `HEAD` requests, and Swagger UI and ReDoc use the configured `title`.
