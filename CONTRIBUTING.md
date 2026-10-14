@@ -31,4 +31,4 @@ CI runs the same checks on the oldest supported Crystal version (see `shard.yml`
 
 1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading.
 2. Bump `version` in `shard.yml` and `Kemal::OpenAPI::VERSION` (a spec checks they match).
-3. Merge, then tag the merge commit as `vX.Y.Z` and publish a GitHub release.
+3. Merge, then run the **Release** workflow from the Actions tab with the tag (`vX.Y.Z`). It checks the version, tags the commit and publishes a GitHub release with the CHANGELOG section as notes.

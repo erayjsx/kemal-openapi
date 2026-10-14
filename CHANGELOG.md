@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-10-14
 
 ### Added
 
@@ -75,5 +75,5 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[0.6.0]: https://github.com/erayjsx/kemal-openapi/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/erayjsx/kemal-openapi/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/erayjsx/kemal-openapi/compare/v0.4.0...v0.5.0
