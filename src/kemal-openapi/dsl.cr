@@ -5,53 +5,101 @@ module Kemal::OpenAPI
   # Top-level DSL helpers — designed to be used in application code.
   # ============================================================
 
-  # Convenience method to build a Schema from a Crystal class/struct
-  # that includes JSON::Serializable.
+  # Builds a `Schema` from a class or struct that includes `JSON::Serializable`.
   #
-  # Usage:
-  #   schema = Kemal::OpenAPI.schema_for(User)
+  # ```
+  # schema = Kemal::OpenAPI.schema_for(User)
+  # ```
   #
-  macro schema_for(klass)
-    %schema = Kemal::OpenAPI::Schema.new(type: "object")
-    %props = Hash(String, Kemal::OpenAPI::Schema).new
-    %required = [] of String
+  # Property names follow `@[JSON::Field(key: ...)]`, fields marked
+  # `ignore: true` are skipped, and a field is required unless it is
+  # nilable or has a default value. Nested serializable types are inlined
+  # (up to *max_depth* levels deep, so recursive types still compile);
+  # register them with `register_schema` and use `ref` to share them instead.
+  def self.schema_for(klass : T.class, depth : Int32 = 0, max_depth : Int32 = 4) : Schema forall T
+    props = Hash(String, Schema).new
+    required = [] of String
 
-    {% for ivar in klass.resolve.instance_vars %}
+    {% for ivar in T.instance_vars %}
       {% ann = ivar.annotation(JSON::Field) %}
       {% key = ann && ann[:key] ? ann[:key] : ivar.name.stringify %}
-      {% ignore = ann && ann[:ignore] ? true : false %}
-
-      {% unless ignore %}
-        {% type = ivar.type.union? ? ivar.type.union_types.reject { |t| t == Nil }.first : ivar.type %}
-
-        {% if type == String %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "string")
-        {% elsif type == Int32 || type == Int64 %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "integer", format: {{type == Int64 ? "int64" : "int32"}})
-        {% elsif type == Float32 || type == Float64 %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "number", format: {{type == Float64 ? "double" : "float"}})
-        {% elsif type == Bool %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "boolean")
-        {% elsif type == Array %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "array", items: Kemal::OpenAPI::Schema.new(type: "string"))
-        {% else %}
-          %props[{{key}}] = Kemal::OpenAPI::Schema.new(type: "object")
-        {% end %}
-
-        {% is_nilable = ivar.type.union? && ivar.type.union_types.includes?(Nil) %}
-        {% unless is_nilable %}
-          %required << {{key}}
-        {% end %}
-
-        {% if is_nilable %}
-          %props[{{key}}].nullable = true
+      {% unless ann && ann[:ignore] %}
+        props[{{key}}] = Kemal::OpenAPI.schema_for_type(::Union({{ivar.type.union? ? ivar.type.union_types.splat : ivar.type}}), depth, max_depth)
+        {% unless ivar.type.nilable? || ivar.has_default_value? %}
+          required << {{key}}
         {% end %}
       {% end %}
     {% end %}
 
-    %schema.properties = %props
-    %schema.required = %required unless %required.empty?
-    %schema
+    Schema.new(
+      type: "object",
+      properties: props,
+      required: required.empty? ? nil : required
+    )
+  end
+
+  # Builds a `Schema` for a single Crystal type. Used by `schema_for`.
+  def self.schema_for_type(type : T.class, depth : Int32 = 0, max_depth : Int32 = 4) : Schema forall T
+    {% begin %}
+    {% t = T %}
+    {% if t.union? %}
+      {% members = t.union_types.reject { |m| m == Nil } %}
+      {% if members.size == 1 %}
+        schema = Kemal::OpenAPI.schema_for_type(::Union({{members[0]}}), depth, max_depth)
+        schema.nullable = true if {{t.nilable?}}
+        schema
+      {% else %}
+        Kemal::OpenAPI::Schema.new(
+          type: nil,
+          nullable: {{t.nilable? ? true : nil}},
+          any_of: [
+            {% for member in members %}
+              Kemal::OpenAPI.schema_for_type(::Union({{member}}), depth, max_depth),
+            {% end %}
+          ] of Kemal::OpenAPI::Schema
+        )
+      {% end %}
+    {% elsif t == String || t == Char %}
+      Kemal::OpenAPI::Schema.new(type: "string")
+    {% elsif t == Bool %}
+      Kemal::OpenAPI::Schema.new(type: "boolean")
+    {% elsif t <= Int %}
+      Kemal::OpenAPI::Schema.new(
+        type: "integer",
+        format: {{[Int64, UInt32, UInt64].includes?(t) ? "int64" : ([Int8, Int16, Int32, UInt8, UInt16].includes?(t) ? "int32" : nil)}},
+        minimum: {{t.name.starts_with?("UInt") ? 0.0 : nil}}
+      )
+    {% elsif t <= Float %}
+      Kemal::OpenAPI::Schema.new(type: "number", format: {{t == Float32 ? "float" : "double"}})
+    {% elsif t == Time %}
+      Kemal::OpenAPI::Schema.new(type: "string", format: "date-time")
+    {% elsif t.name == "UUID" %}
+      Kemal::OpenAPI::Schema.new(type: "string", format: "uuid")
+    {% elsif t == JSON::Any %}
+      Kemal::OpenAPI::Schema.new(type: ["object", "array", "string", "number", "boolean", "null"])
+    {% elsif t < Enum %}
+      Kemal::OpenAPI::Schema.new(type: "string", enum_values: {{t.constants.map(&.stringify.underscore)}})
+    {% elsif t <= Array || t <= Set || t <= Deque || t <= Slice %}
+      Kemal::OpenAPI::Schema.new(
+        type: "array",
+        items: Kemal::OpenAPI.schema_for_type(::Union({{t.type_vars[0]}}), depth, max_depth),
+        unique_items: {{t <= Set ? true : nil}}
+      )
+    {% elsif t <= Hash %}
+      Kemal::OpenAPI::Schema.new(
+        type: "object",
+        additional_properties: Kemal::OpenAPI.schema_for_type(::Union({{t.type_vars[1]}}), depth, max_depth)
+      )
+    {% elsif t <= JSON::Serializable %}
+      if depth < max_depth
+        Kemal::OpenAPI.schema_for({{t}}, depth + 1, max_depth)
+      else
+        Kemal::OpenAPI::Schema.new(type: "object")
+      end
+    {% else %}
+      Kemal::OpenAPI::Schema.new(type: "object")
+    {% end %}
+    {% end %}
   end
 
   # Quick helper to create a Schema reference.

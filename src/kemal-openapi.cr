@@ -17,7 +17,7 @@ require "./kemal-openapi/dsl"
 require "./kemal-openapi/macros"
 
 module Kemal::OpenAPI
-  VERSION = "0.4.0"
+  VERSION = "0.5.0"
 
   @@handler : Handler? = nil
 
@@ -44,7 +44,8 @@ module Kemal::OpenAPI
 
     handler.builder = Builder.new
     yield handler.builder
-    register_discovered_operations
+    handler.ui_title = handler.builder.info.title
+    discover_operations(force: true)
     handler.invalidate_cache!
     handler
   end
@@ -86,13 +87,14 @@ module Kemal::OpenAPI
     handler.builder.servers = servers
     handler.builder.tags = tags
     handler.builder.global_security = global_security
+    handler.ui_title = title
 
     Kemal.config.max_request_body_size = max_request_body_size if max_request_body_size
     Kemal.config.shutdown_timeout = shutdown_timeout if shutdown_timeout
     Kemal.config.max_multipart_form_field_size = max_multipart_form_field_size if max_multipart_form_field_size
     Kemal.config.websocket_allowed_origins = websocket_allowed_origins if websocket_allowed_origins
 
-    register_discovered_operations
+    discover_operations(force: true)
     handler.invalidate_cache!
     handler
   end

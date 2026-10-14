@@ -49,10 +49,11 @@ describe "Kemal::OpenAPI regressions" do
 
   it "does not duplicate discovered operations on repeated setup" do
     Kemal::OpenAPI.setup(title: "A", version: "1.0.0")
-    Kemal::OpenAPI::OPERATIONS.size.should eq(1)
+    count = Kemal::OpenAPI::OPERATIONS.size
+    count.should be > 0
 
     Kemal::OpenAPI.setup(title: "B", version: "2.0.0")
-    Kemal::OpenAPI::OPERATIONS.size.should eq(1)
+    Kemal::OpenAPI::OPERATIONS.size.should eq(count)
   end
 
   it "does not force schema ref for string response shorthand" do

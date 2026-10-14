@@ -20,15 +20,15 @@ module Kemal::OpenAPI
     end
 
     def call(context : HTTP::Server::Context)
-      path = context.request.path
+      return call_next(context) unless context.request.method.in?("GET", "HEAD")
 
-      case path
-      when @spec_path
+      path = context.request.path
+      if path == @spec_path
         serve_spec(context)
-      when @docs_path
+      elsif path == @docs_path
         serve_swagger_ui(context)
-      when @redoc_path
-        serve_redoc(context) if @redoc_path
+      elsif (redoc_path = @redoc_path) && path == redoc_path
+        serve_redoc(context)
       else
         call_next(context)
       end
