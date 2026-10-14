@@ -17,7 +17,7 @@ module Kemal::OpenAPI
       @operations = OPERATIONS,
       @schemas = SCHEMAS,
       @security_schemes = SECURITY_SCHEMES,
-      @global_security = nil
+      @global_security = nil,
     )
     end
 

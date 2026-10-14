@@ -23,7 +23,7 @@ module Kemal::OpenAPI
       @request_body = nil,
       @responses = Hash(String, Response).new,
       @deprecated = nil,
-      @security = nil
+      @security = nil,
     )
     end
 
@@ -88,7 +88,7 @@ module Kemal::OpenAPI
       @content_type = "application/json",
       @schema = nil,
       @description = nil,
-      @required = true
+      @required = true,
     )
     end
 

@@ -14,7 +14,7 @@ module Kemal::OpenAPI
       @content_type = nil,
       @schema = nil,
       @headers = nil,
-      @examples = nil
+      @examples = nil,
     )
     end
 

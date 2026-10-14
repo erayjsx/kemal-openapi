@@ -13,7 +13,7 @@ module Kemal::OpenAPI
       @description = nil,
       @terms_of_service = nil,
       @contact = nil,
-      @license = nil
+      @license = nil,
     )
     end
 

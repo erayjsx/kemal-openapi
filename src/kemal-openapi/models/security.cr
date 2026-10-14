@@ -1,12 +1,12 @@
 module Kemal::OpenAPI
   class SecurityScheme
-    property type : String          # "apiKey", "http", "oauth2", "openIdConnect"
+    property type : String # "apiKey", "http", "oauth2", "openIdConnect"
     property description : String?
-    property name : String?         # Required for apiKey
-    property location : String?     # Required for apiKey: "query", "header", "cookie"
-    property scheme : String?       # Required for http: "bearer", "basic"
+    property name : String?          # Required for apiKey
+    property location : String?      # Required for apiKey: "query", "header", "cookie"
+    property scheme : String?        # Required for http: "bearer", "basic"
     property bearer_format : String? # Optional for http bearer
-    property flows : OAuthFlows?    # Required for oauth2
+    property flows : OAuthFlows?     # Required for oauth2
 
     def initialize(
       @type,
@@ -15,7 +15,7 @@ module Kemal::OpenAPI
       @location = nil,
       @scheme = nil,
       @bearer_format = nil,
-      @flows = nil
+      @flows = nil,
     )
     end
 
@@ -44,7 +44,7 @@ module Kemal::OpenAPI
       @implicit = nil,
       @password = nil,
       @client_credentials = nil,
-      @authorization_code = nil
+      @authorization_code = nil,
     )
     end
 
@@ -76,7 +76,7 @@ module Kemal::OpenAPI
       @scopes = Hash(String, String).new,
       @authorization_url = nil,
       @token_url = nil,
-      @refresh_url = nil
+      @refresh_url = nil,
     )
     end
 

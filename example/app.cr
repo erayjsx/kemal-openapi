@@ -29,8 +29,8 @@ USERS = [
 ]
 
 START_TIME = Time.instant
-PORT = (ENV["PORT"]? || "3000").to_i
-BASE_URL = "http://localhost:#{PORT}"
+PORT       = (ENV["PORT"]? || "3000").to_i
+BASE_URL   = "http://localhost:#{PORT}"
 
 # ============================================================
 # Schema definitions

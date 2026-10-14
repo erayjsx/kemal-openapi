@@ -1,9 +1,8 @@
-
 module Kemal::OpenAPI
   # Global registry of documented operations.
   # Annotated routes are added by `register_discovered_operations`; manual
   # registrations go through `register`.
-  OPERATIONS = [] of Operation
+  OPERATIONS     = [] of Operation
   OPERATIONS_MAP = Hash(String, Operation).new
 
   # Schema registry for reusable component schemas.

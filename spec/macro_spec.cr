@@ -6,7 +6,7 @@ require "./spec_helper"
   parameters: [Kemal::OpenAPI.param("expand", type: "boolean")],
   security: ["bearerAuth"],
   responses: {
-    200       => {description: "Item", schema: {type: "object"}},
+          200 => {description: "Item", schema: {type: "object"}},
     "default" => "Unexpected error",
   }
 )]

@@ -71,7 +71,7 @@ module Kemal::OpenAPI
     max_request_body_size : Int32? = nil,
     shutdown_timeout : Time::Span? = nil,
     max_multipart_form_field_size : Int32? = nil,
-    websocket_allowed_origins : Array(String)? = nil
+    websocket_allowed_origins : Array(String)? = nil,
   ) : Handler
     handler = acquire_handler(
       spec_path: spec_path,
@@ -107,7 +107,7 @@ module Kemal::OpenAPI
   private def self.acquire_handler(
     spec_path : String,
     docs_path : String,
-    redoc_path : String?
+    redoc_path : String?,
   ) : Handler
     if handler = @@handler
       handler.spec_path = spec_path

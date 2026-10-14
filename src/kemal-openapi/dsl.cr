@@ -124,7 +124,7 @@ module Kemal::OpenAPI
     type : String | Array(String) = "string",
     format : String? = nil,
     description : String? = nil,
-    required : Bool? = nil
+    required : Bool? = nil,
   ) : Parameter
     schema = Schema.new(type: type, format: format)
     req = required.nil? ? (location == "path") : required
@@ -151,7 +151,7 @@ module Kemal::OpenAPI
     status : Int32,
     description : String,
     schema : Schema? = nil,
-    content_type : String = "application/json"
+    content_type : String = "application/json",
   ) : Response
     Response.new(
       status_code: status,
@@ -175,7 +175,7 @@ module Kemal::OpenAPI
   def self.api_key_auth(
     name : String = "X-API-Key",
     location : String = "header",
-    description : String = "API Key"
+    description : String = "API Key",
   ) : SecurityScheme
     SecurityScheme.new(
       type: "apiKey",

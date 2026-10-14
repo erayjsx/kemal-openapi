@@ -1,7 +1,7 @@
 module Kemal::OpenAPI
   class Parameter
     property name : String
-    property location : String  # "query", "header", "path", "cookie"
+    property location : String # "query", "header", "path", "cookie"
     property description : String?
     property required : Bool
     property schema : Schema?
@@ -17,7 +17,7 @@ module Kemal::OpenAPI
       @schema = nil,
       @deprecated = nil,
       @allow_empty_value = nil,
-      @example = nil
+      @example = nil,
     )
       # Path parameters are always required per OpenAPI spec
       @required = true if @location == "path"

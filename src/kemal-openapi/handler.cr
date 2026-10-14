@@ -15,7 +15,7 @@ module Kemal::OpenAPI
       @spec_path = "/openapi.json",
       @docs_path = "/docs",
       @redoc_path = "/redoc",
-      @ui_title = "API Documentation"
+      @ui_title = "API Documentation",
     )
     end
 

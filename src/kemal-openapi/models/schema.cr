@@ -1,4 +1,3 @@
-
 require "json"
 
 module Kemal::OpenAPI
@@ -67,7 +66,7 @@ module Kemal::OpenAPI
       @title = nil,
       @read_only = nil,
       @write_only = nil,
-      @deprecated = nil
+      @deprecated = nil,
     )
     end
 

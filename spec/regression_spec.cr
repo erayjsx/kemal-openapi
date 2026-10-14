@@ -3,7 +3,7 @@ require "./spec_helper"
 @[OpenAPI(
   summary: "Macro string response regression",
   responses: {
-    200 => "OK"
+    200 => "OK",
   }
 )]
 get "/__openapi_spec_macro_string_response" do |env|
