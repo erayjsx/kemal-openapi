@@ -35,6 +35,7 @@ private def process_request(request : HTTP::Request) : HTTP::Client::Response
 end
 
 private def build_main_handler : HTTP::Handler
+  Kemal.config.setup
   main_handler = Kemal.config.handlers.first
   current_handler = main_handler
   Kemal.config.handlers.each do |handler|

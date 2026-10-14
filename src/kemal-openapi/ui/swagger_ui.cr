@@ -1,6 +1,7 @@
 module Kemal::OpenAPI
   module SwaggerUI
-    SWAGGER_UI_VERSION = "5.18.2"
+    SWAGGER_UI_VERSION = "5.33.1"
+    REDOC_VERSION      = "2.5.4"
 
     def self.html(spec_url : String = "/openapi.json", title : String = "API Documentation") : String
       <<-HTML
@@ -25,7 +26,7 @@ module Kemal::OpenAPI
         <script>
           window.onload = function() {
             SwaggerUIBundle({
-              url: "#{spec_url}",
+              url: #{spec_url.to_json},
               dom_id: '#swagger-ui',
               deepLinking: true,
               presets: [
@@ -65,8 +66,8 @@ module Kemal::OpenAPI
         </style>
       </head>
       <body>
-        <redoc spec-url='#{spec_url}'></redoc>
-        <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+        <redoc spec-url="#{HTML.escape(spec_url)}"></redoc>
+        <script src="https://cdn.jsdelivr.net/npm/redoc@#{REDOC_VERSION}/bundles/redoc.standalone.js"></script>
       </body>
       </html>
       HTML

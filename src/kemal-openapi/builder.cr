@@ -17,7 +17,7 @@ module Kemal::OpenAPI
       @operations = OPERATIONS,
       @schemas = SCHEMAS,
       @security_schemes = SECURITY_SCHEMES,
-      @global_security = nil
+      @global_security = nil,
     )
     end
 
@@ -54,7 +54,9 @@ module Kemal::OpenAPI
                 json.field(path) do
                   json.object do
                     ops.each do |op|
-                      json.field(op.method.downcase) { op.to_json(json) }
+                      json.field(op.method.downcase) do
+                        op.to_json(json, implicit_path_parameters(op))
+                      end
                     end
                   end
                 end
@@ -111,9 +113,23 @@ module Kemal::OpenAPI
       end
     end
 
-    # Convert Kemal path params (:id) to OpenAPI format ({id})
+    PATH_PARAM_REGEX = /[:*](\w+)/
+
+    # Convert Kemal path params (`:id`, `*glob`) to OpenAPI format (`{id}`).
     private def kemal_to_openapi_path(path : String) : String
-      path.gsub(/:(\w+)/) { |_, match| "{#{match[1]}}" }
+      path.gsub(PATH_PARAM_REGEX) { |_, match| "{#{match[1]}}" }
+    end
+
+    # Path parameters present in the route but not documented on the
+    # operation. OpenAPI requires every templated path segment to be
+    # declared, so these are emitted as required string parameters.
+    private def implicit_path_parameters(op : Operation) : Array(Parameter)
+      documented = (op.parameters || [] of Parameter).select { |param| param.location == "path" }.map(&.name)
+      op.path.scan(PATH_PARAM_REGEX).compact_map do |match|
+        name = match[1]
+        next if documented.includes?(name)
+        Parameter.new(name: name, location: "path", schema: Schema.new(type: "string"))
+      end
     end
   end
 end

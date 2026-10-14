@@ -1,6 +1,7 @@
 module Kemal::OpenAPI
   class Response
-    property status_code : Int32
+    # Numeric status code, or `nil` for the `default` response and ranges like `2XX`.
+    property status_code : Int32?
     property description : String
     property content_type : String?
     property schema : Schema?
@@ -13,7 +14,7 @@ module Kemal::OpenAPI
       @content_type = nil,
       @schema = nil,
       @headers = nil,
-      @examples = nil
+      @examples = nil,
     )
     end
 

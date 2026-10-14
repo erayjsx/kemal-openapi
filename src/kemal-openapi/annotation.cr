@@ -1,11 +1,12 @@
-
 module Kemal::OpenAPI
   # Annotation for defining OpenAPI operations on routes.
   #
   # Usage:
-  # ```crystal
+  # ```
   # @[OpenAPI(summary: "List users", tags: ["Users"])]
-  # get "/users" do ... end
+  # get "/users" do
+  #   ...
+  # end
   # ```
   annotation OpenAPI
   end

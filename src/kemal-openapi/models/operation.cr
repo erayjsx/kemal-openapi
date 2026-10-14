@@ -23,11 +23,11 @@ module Kemal::OpenAPI
       @request_body = nil,
       @responses = Hash(String, Response).new,
       @deprecated = nil,
-      @security = nil
+      @security = nil,
     )
     end
 
-    def to_json(builder : JSON::Builder) : Nil
+    def to_json(builder : JSON::Builder, extra_parameters : Array(Parameter) = [] of Parameter) : Nil
       builder.object do
         if tags = @tags
           builder.field("tags") do
@@ -40,7 +40,8 @@ module Kemal::OpenAPI
         builder.field("operationId", @operation_id) if @operation_id
         builder.field("deprecated", @deprecated) if @deprecated
 
-        if params = @parameters
+        params = (@parameters || [] of Parameter) + extra_parameters
+        unless params.empty?
           builder.field("parameters") do
             builder.array { params.each { |p| p.to_json(builder) } }
           end
@@ -87,7 +88,7 @@ module Kemal::OpenAPI
       @content_type = "application/json",
       @schema = nil,
       @description = nil,
-      @required = true
+      @required = true,
     )
     end
 
