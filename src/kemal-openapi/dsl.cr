@@ -15,8 +15,9 @@ module Kemal::OpenAPI
   # `ignore: true` are skipped, and a field is required unless it is
   # nilable or has a default value. Nested serializable types are inlined
   # (up to *max_depth* levels deep, so recursive types still compile);
-  # register them with `register_schema` and use `ref` to share them instead.
-  def self.schema_for(klass : T.class, depth : Int32 = 0, max_depth : Int32 = 4) : Schema forall T
+  # pass `refs: true` (or use `register_schema_for`) to register them as
+  # components and reference them with `$ref` instead.
+  def self.schema_for(klass : T.class, depth : Int32 = 0, max_depth : Int32 = 4, refs : Bool = false, registry : Registry = Kemal::OpenAPI.registry) : Schema forall T
     props = Hash(String, Schema).new
     required = [] of String
 
@@ -24,9 +25,9 @@ module Kemal::OpenAPI
       {% ann = ivar.annotation(JSON::Field) %}
       {% key = ann && ann[:key] ? ann[:key] : ivar.name.stringify %}
       {% unless ann && ann[:ignore] %}
-        props[{{key}}] = Kemal::OpenAPI.schema_for_type(::Union({{ivar.type.union? ? ivar.type.union_types.splat : ivar.type}}), depth, max_depth)
+        props[{{ key }}] = Kemal::OpenAPI.schema_for_type(::Union({{ ivar.type.union? ? ivar.type.union_types.splat : ivar.type }}), depth, max_depth, refs, registry)
         {% unless ivar.type.nilable? || ivar.has_default_value? %}
-          required << {{key}}
+          required << {{ key }}
         {% end %}
       {% end %}
     {% end %}
@@ -38,23 +39,42 @@ module Kemal::OpenAPI
     )
   end
 
+  # Registers *klass* as a schema component named *name* (the class name by
+  # default) and returns a `$ref` to it. Nested `JSON::Serializable` types are
+  # registered too and referenced by `$ref`, so shared and recursive types
+  # appear once in the spec.
+  #
+  # ```
+  # Kemal::OpenAPI.register_schema_for(User) # registers User, Address, ...
+  # Kemal::OpenAPI.array_of("User")          # reference it elsewhere
+  # ```
+  def self.register_schema_for(klass : T.class, name : String? = nil, registry : Registry = Kemal::OpenAPI.registry) : Schema forall T
+    name ||= {{ T.name(generic_args: false).split("::").last }}
+    unless registry.schemas.has_key?(name)
+      # Reserve the name first so recursive types resolve to a $ref.
+      registry.register_schema(name, Schema.new(type: "object"))
+      registry.register_schema(name, schema_for(klass, refs: true, registry: registry))
+    end
+    ref(name)
+  end
+
   # Builds a `Schema` for a single Crystal type. Used by `schema_for`.
-  def self.schema_for_type(type : T.class, depth : Int32 = 0, max_depth : Int32 = 4) : Schema forall T
+  def self.schema_for_type(type : T.class, depth : Int32 = 0, max_depth : Int32 = 4, refs : Bool = false, registry : Registry = Kemal::OpenAPI.registry) : Schema forall T
     {% begin %}
     {% t = T %}
     {% if t.union? %}
       {% members = t.union_types.reject { |m| m == Nil } %}
       {% if members.size == 1 %}
-        schema = Kemal::OpenAPI.schema_for_type(::Union({{members[0]}}), depth, max_depth)
-        schema.nullable = true if {{t.nilable?}}
+        schema = Kemal::OpenAPI.schema_for_type(::Union({{ members[0] }}), depth, max_depth, refs, registry)
+        schema.nullable = true if {{ t.nilable? }}
         schema
       {% else %}
         Kemal::OpenAPI::Schema.new(
           type: nil,
-          nullable: {{t.nilable? ? true : nil}},
+          nullable: {{ t.nilable? ? true : nil }},
           any_of: [
             {% for member in members %}
-              Kemal::OpenAPI.schema_for_type(::Union({{member}}), depth, max_depth),
+              Kemal::OpenAPI.schema_for_type(::Union({{ member }}), depth, max_depth, refs, registry),
             {% end %}
           ] of Kemal::OpenAPI::Schema
         )
@@ -66,11 +86,11 @@ module Kemal::OpenAPI
     {% elsif t <= Int %}
       Kemal::OpenAPI::Schema.new(
         type: "integer",
-        format: {{[Int64, UInt32, UInt64].includes?(t) ? "int64" : ([Int8, Int16, Int32, UInt8, UInt16].includes?(t) ? "int32" : nil)}},
-        minimum: {{t.name.starts_with?("UInt") ? 0.0 : nil}}
+        format: {{ [Int64, UInt32, UInt64].includes?(t) ? "int64" : ([Int8, Int16, Int32, UInt8, UInt16].includes?(t) ? "int32" : nil) }},
+        minimum: {{ t.name.starts_with?("UInt") ? 0.0 : nil }}
       )
     {% elsif t <= Float %}
-      Kemal::OpenAPI::Schema.new(type: "number", format: {{t == Float32 ? "float" : "double"}})
+      Kemal::OpenAPI::Schema.new(type: "number", format: {{ t == Float32 ? "float" : "double" }})
     {% elsif t == Time %}
       Kemal::OpenAPI::Schema.new(type: "string", format: "date-time")
     {% elsif t.name == "UUID" %}
@@ -78,21 +98,23 @@ module Kemal::OpenAPI
     {% elsif t == JSON::Any %}
       Kemal::OpenAPI::Schema.new(type: ["object", "array", "string", "number", "boolean", "null"])
     {% elsif t < Enum %}
-      Kemal::OpenAPI::Schema.new(type: "string", enum_values: {{t.constants.map(&.stringify.underscore)}})
+      Kemal::OpenAPI::Schema.new(type: "string", enum_values: {{ t.constants.map(&.stringify.underscore) }})
     {% elsif t <= Array || t <= Set || t <= Deque || t <= Slice %}
       Kemal::OpenAPI::Schema.new(
         type: "array",
-        items: Kemal::OpenAPI.schema_for_type(::Union({{t.type_vars[0]}}), depth, max_depth),
-        unique_items: {{t <= Set ? true : nil}}
+        items: Kemal::OpenAPI.schema_for_type(::Union({{ t.type_vars[0] }}), depth, max_depth, refs, registry),
+        unique_items: {{ t <= Set ? true : nil }}
       )
     {% elsif t <= Hash %}
       Kemal::OpenAPI::Schema.new(
         type: "object",
-        additional_properties: Kemal::OpenAPI.schema_for_type(::Union({{t.type_vars[1]}}), depth, max_depth)
+        additional_properties: Kemal::OpenAPI.schema_for_type(::Union({{ t.type_vars[1] }}), depth, max_depth, refs, registry)
       )
     {% elsif t <= JSON::Serializable %}
-      if depth < max_depth
-        Kemal::OpenAPI.schema_for({{t}}, depth + 1, max_depth)
+      if refs
+        Kemal::OpenAPI.register_schema_for({{ t }}, registry: registry)
+      elsif depth < max_depth
+        Kemal::OpenAPI.schema_for({{ t }}, depth + 1, max_depth, refs, registry)
       else
         Kemal::OpenAPI::Schema.new(type: "object")
       end

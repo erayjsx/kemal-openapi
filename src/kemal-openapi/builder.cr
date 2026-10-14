@@ -9,16 +9,27 @@ module Kemal::OpenAPI
     property schemas : Hash(String, Schema)
     property security_schemes : Hash(String, SecurityScheme)
     property global_security : Array(Hash(String, Array(String)))?
+    # Generate an `operationId` (e.g. `getUsersById`) for operations that do
+    # not set one. Client generators rely on it to name methods.
+    property auto_operation_ids : Bool
+    getter registry : Registry
 
     def initialize(
       @info = Info.new,
       @servers = [] of Server,
       @tags = [] of Tag,
-      @operations = OPERATIONS,
-      @schemas = SCHEMAS,
-      @security_schemes = SECURITY_SCHEMES,
+      @registry = Kemal::OpenAPI.registry,
+      @operations = registry.operations,
+      @schemas = registry.schemas,
+      @security_schemes = registry.security_schemes,
       @global_security = nil,
+      @auto_operation_ids = true,
     )
+    end
+
+    # Writes the spec to *path* as pretty-printed JSON.
+    def write(path : String | Path) : Nil
+      File.write(path, JSON.parse(to_json).to_pretty_json + "\n")
     end
 
     def to_json : String
@@ -30,15 +41,17 @@ module Kemal::OpenAPI
 
           unless @servers.empty?
             json.field("servers") do
-              json.array { @servers.each { |s| s.to_json(json) } }
+              json.array { @servers.each(&.to_json(json)) }
             end
           end
 
           unless @tags.empty?
             json.field("tags") do
-              json.array { @tags.each { |t| t.to_json(json) } }
+              json.array { @tags.each(&.to_json(json)) }
             end
           end
+
+          operation_ids = generated_operation_ids
 
           # Group operations by path
           paths = Hash(String, Array(Operation)).new
@@ -55,7 +68,7 @@ module Kemal::OpenAPI
                   json.object do
                     ops.each do |op|
                       json.field(op.method.downcase) do
-                        op.to_json(json, implicit_path_parameters(op))
+                        op.to_json(json, implicit_path_parameters(op), operation_ids[op]?)
                       end
                     end
                   end
@@ -114,6 +127,46 @@ module Kemal::OpenAPI
     end
 
     PATH_PARAM_REGEX = /[:*](\w+)/
+
+    # operationIds for operations that lack one, unique across the spec.
+    private def generated_operation_ids : Hash(Operation, String)
+      ids = Hash(Operation, String).new
+      return ids unless @auto_operation_ids
+
+      taken = @operations.compact_map(&.operation_id).to_set
+      @operations.each do |op|
+        next if op.operation_id
+
+        base = Builder.operation_id_for(op.method, op.path)
+        id = base
+        suffix = 2
+        while taken.includes?(id)
+          id = "#{base}#{suffix}"
+          suffix += 1
+        end
+        taken << id
+        ids[op] = id
+      end
+      ids
+    end
+
+    # Derives an operationId from a method and Kemal path:
+    # `GET /users/:id/posts` becomes `getUsersByIdPosts`.
+    def self.operation_id_for(method : String, path : String) : String
+      String.build do |io|
+        io << method.downcase
+        path.split('/').each do |segment|
+          next if segment.empty?
+          if segment.starts_with?(':') || segment.starts_with?('*')
+            io << "By"
+            segment = segment[1..]
+          end
+          segment.split(/[^a-zA-Z0-9]+/).each do |word|
+            io << word.capitalize unless word.empty?
+          end
+        end
+      end
+    end
 
     # Convert Kemal path params (`:id`, `*glob`) to OpenAPI format (`{id}`).
     private def kemal_to_openapi_path(path : String) : String

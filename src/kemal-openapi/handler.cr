@@ -9,6 +9,7 @@ module Kemal::OpenAPI
     property ui_title : String
 
     @spec_cache : String? = nil
+    @spec_cache_version : Int64 = -1
 
     def initialize(
       @builder = Builder.new,
@@ -50,11 +51,19 @@ module Kemal::OpenAPI
       context.response.print(SwaggerUI.redoc_html(@spec_path, @ui_title))
     end
 
-    private def spec_json : String
-      @spec_cache ||= @builder.to_json
+    # The spec served at `spec_path`. It is cached and rebuilt whenever the
+    # builder's registry changes.
+    def spec_json : String
+      version = @builder.registry.version
+      cache = @spec_cache
+      if cache.nil? || version != @spec_cache_version
+        cache = @spec_cache = @builder.to_json
+        @spec_cache_version = version
+      end
+      cache
     end
 
-    # Force regeneration of cached spec (useful for development)
+    # Forces the spec to be rebuilt on the next request.
     def invalidate_cache!
       @spec_cache = nil
     end

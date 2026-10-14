@@ -172,7 +172,7 @@ describe Kemal::OpenAPI::Validator do
       body = JSON.parse(response.body)
       body["error"].should eq("validation_error")
       body["message"].should eq("Missing required field: name")
-      body["errors"].as_a.map { |e| e["pointer"].as_s }.should eq(["", "/role"])
+      body["errors"].as_a.map(&.["pointer"].as_s).should eq(["", "/role"])
     end
 
     it "keeps the body readable for the route handler" do

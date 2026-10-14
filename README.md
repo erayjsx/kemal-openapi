@@ -8,9 +8,12 @@ OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Describe y
 
 - **OpenAPI 3.1.0** spec generation
 - **Annotation-based** route definitions (`@[OpenAPI(...)]`)
-- **Runtime request validation** of JSON bodies: types, `required`, `enum`, string length and `pattern`, numeric bounds, array size and uniqueness, `additionalProperties`, `oneOf` / `anyOf` / `allOf`, and `$ref`
-- **Schemas from your types**: `schema_for(User)` builds a schema from any `JSON::Serializable` class
-- Path parameters (`:id`, `*glob`) are documented automatically
+- **Runtime request validation** of query, path, header and cookie parameters and JSON bodies: types, `required`, `enum`, string length and `pattern`, numeric bounds, array size and uniqueness, `additionalProperties`, `oneOf` / `anyOf` / `allOf`, and `$ref`
+- Optional **response validation** that logs routes returning data that does not match their documentation
+- **Schemas from your types**: `schema_for(User)` builds a schema from any `JSON::Serializable` class, and `register_schema_for(User)` registers it and its nested types as `$ref` components
+- Path parameters (`:id`, `*glob`) and `operationId`s are generated automatically
+- **Spec export** to a file without starting the server
+- Several independent API descriptions in one app through separate registries
 - Built-in **Swagger UI** at `/docs`, **ReDoc** at `/redoc`, and the JSON spec at `/openapi.json`
 - Reusable schema components and security schemes (Bearer, API key, OAuth2)
 
@@ -24,7 +27,7 @@ Add the dependency to your `shard.yml`:
 dependencies:
   kemal-openapi:
     github: erayjsx/kemal-openapi
-    version: ~> 0.5.0
+    version: ~> 0.6.0
 ```
 
 Then run `shards install`.
@@ -109,27 +112,30 @@ Wherever a schema is expected you can pass:
 
 ## Request validation
 
-When a route documents a JSON request body, the body is validated **before** your route block runs. Validation works even if you never call `setup`.
+Requests to annotated routes are validated **before** your route block runs, against the documented parameters and JSON request body. Validation works even if you never call `setup`.
 
 | Situation | Status |
 | --- | --- |
+| A parameter is missing, has the wrong type or breaks its schema | `422 Unprocessable Entity` |
 | Body missing but required, or not valid JSON | `400 Bad Request` |
 | Body larger than `Kemal.config.max_request_body_size` | `413 Payload Too Large` |
 | `Content-Type` header present but not JSON | `415 Unsupported Media Type` |
 | Body does not match the schema | `422 Unprocessable Entity` |
 
-Every failure is reported, each with a [JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901) to the offending value:
+Every failure is reported. For the body, `pointer` is a [JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901) to the offending value; for parameters it is the parameter name:
 
 ```json
 {
   "error": "validation_error",
   "message": "Missing required field: email",
   "errors": [
-    {"pointer": "", "message": "Missing required field: email"},
-    {"pointer": "/age", "message": "Must be greater than or equal to 18"}
+    {"in": "body", "pointer": "", "message": "Missing required field: email"},
+    {"in": "body", "pointer": "/age", "message": "Must be greater than or equal to 18"}
   ]
 }
 ```
+
+Parameter values arrive as strings and are converted to the schema's type before validation: `?page=2` becomes an integer, `?active=true` a boolean, and array parameters accept both `?tag=a&tag=b` and `?tag=a,b`.
 
 Properties marked `read_only: true` are not required in requests. Request bodies with other media types (for example `multipart/form-data`) are documented but not validated, so Kemal parses them as usual.
 
@@ -139,6 +145,16 @@ You can also validate data yourself:
 errors = Kemal::OpenAPI::Validator.errors_for(JSON.parse(payload), schema)
 errors.each { |e| puts "#{e.pointer}: #{e.message}" }
 ```
+
+### Response validation
+
+During development you can check that routes return what they document:
+
+```crystal
+Kemal::OpenAPI.setup(title: "My API", validate_responses: true)
+```
+
+When a route returns a JSON string, it is validated against the response schema for the current status code (an exact code such as `200`, then a range such as `2XX`, then `default`). Mismatches are logged as warnings under the `kemal.openapi` log source and the response itself is never changed.
 
 ## Schemas from Crystal types
 
@@ -160,7 +176,14 @@ errors.each { |e| puts "#{e.pointer}: #{e.message}" }
 | `A \| B` | `anyOf` |
 | `JSON::Any` | Any value |
 
-`@[JSON::Field(key: ...)]` and `@[JSON::Field(ignore: true)]` are respected, and fields with a default value are optional. Nested types are inlined up to four levels deep; to share a nested type, register it with `register_schema` and reference it by name instead.
+`@[JSON::Field(key: ...)]` and `@[JSON::Field(ignore: true)]` are respected, and fields with a default value are optional. Nested types are inlined up to four levels deep.
+
+To share types instead of inlining them, use `register_schema_for`. It registers the type and every nested `JSON::Serializable` type as a component, links them with `$ref` (recursive types included) and returns a reference:
+
+```crystal
+Kemal::OpenAPI.register_schema_for(Team)         # registers Team and Member
+Kemal::OpenAPI.register_schema_for(Member, "TeamMember") # custom component name
+```
 
 ## Configuration
 
@@ -193,6 +216,40 @@ end
 
 `setup` and `configure` are idempotent, and the generated spec is cached and refreshed whenever an operation, schema or security scheme is registered.
 
+Two more `setup` options:
+
+- `auto_operation_ids: false` stops generating `operationId`s. By default operations without one get an ID derived from the method and path, such as `getUsersById` for `GET /users/:id`.
+- `validate_responses: true` turns on [response validation](#response-validation).
+
+## Exporting the spec
+
+Set `KEMAL_OPENAPI_EXPORT` to write the spec to a file and exit instead of starting the server. This is handy for generating API clients or checking spec changes in CI:
+
+```sh
+KEMAL_OPENAPI_EXPORT=openapi.json crystal run src/app.cr
+```
+
+From code, use `Kemal::OpenAPI.write_spec("openapi.json")` or `Kemal::OpenAPI.spec_json`.
+
+## Multiple APIs
+
+Everything registered through the module-level helpers and annotations goes into the default registry, `Kemal::OpenAPI.registry`. To serve another, independent description (an admin or versioned API, for example), give it its own registry and handler:
+
+```crystal
+admin = Kemal::OpenAPI::Registry.new
+admin.register(Kemal::OpenAPI::Operation.new(method: "get", path: "/admin/stats", summary: "Stats"))
+
+use Kemal::OpenAPI::Handler.new(
+  builder: Kemal::OpenAPI::Builder.new(registry: admin, info: Kemal::OpenAPI::Info.new(title: "Admin API")),
+  spec_path: "/admin/openapi.json",
+  docs_path: "/admin/docs",
+  redoc_path: nil
+)
+
+# In a route of the admin API:
+next unless Kemal::OpenAPI::Validator.validate(env, "POST", "/admin/jobs", registry: admin)
+```
+
 ## Manual registration
 
 If you prefer not to use annotations, register operations directly:
@@ -211,21 +268,11 @@ Kemal::OpenAPI.register(
 
 Request bodies of manually registered operations are validated as well. See [`example/app.cr`](example/app.cr) for a complete application.
 
-## Development
-
-```sh
-shards install
-crystal spec
-crystal tool format --check
-```
-
 ## Contributing
 
-1. Fork it (<https://github.com/erayjsx/kemal-openapi/fork>)
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create a new Pull Request
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and checks, and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+
+A note on scope: OpenAPI 3.1 has no way to describe WebSocket routes (`ws`) or Kemal's `QUERY` method, so those routes are left undocumented.
 
 ## Contributors
 

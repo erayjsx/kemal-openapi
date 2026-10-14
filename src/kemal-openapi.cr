@@ -17,9 +17,23 @@ require "./kemal-openapi/dsl"
 require "./kemal-openapi/macros"
 
 module Kemal::OpenAPI
-  VERSION = "0.5.0"
+  VERSION = "0.6.0"
 
   @@handler : Handler? = nil
+
+  # When enabled, the value returned by each annotated route is checked
+  # against the documented response schema for its status code, and
+  # mismatches are logged as warnings (`kemal.openapi` log source). Meant for
+  # development and tests; responses are never modified.
+  class_property? validate_responses : Bool = false
+
+  # Environment variable that makes `setup`/`configure` write the spec to the
+  # given path and exit, so it can be generated without starting the server:
+  #
+  # ```sh
+  # KEMAL_OPENAPI_EXPORT=openapi.json crystal run src/app.cr
+  # ```
+  EXPORT_ENV = "KEMAL_OPENAPI_EXPORT"
 
   # Main configuration method. Call this in your app to enable OpenAPI docs.
   #
@@ -47,6 +61,7 @@ module Kemal::OpenAPI
     handler.ui_title = handler.builder.info.title
     discover_operations(force: true)
     handler.invalidate_cache!
+    export_if_requested(handler)
     handler
   end
 
@@ -72,6 +87,8 @@ module Kemal::OpenAPI
     shutdown_timeout : Time::Span? = nil,
     max_multipart_form_field_size : Int32? = nil,
     websocket_allowed_origins : Array(String)? = nil,
+    auto_operation_ids : Bool = true,
+    validate_responses : Bool? = nil,
   ) : Handler
     handler = acquire_handler(
       spec_path: spec_path,
@@ -87,7 +104,9 @@ module Kemal::OpenAPI
     handler.builder.servers = servers
     handler.builder.tags = tags
     handler.builder.global_security = global_security
+    handler.builder.auto_operation_ids = auto_operation_ids
     handler.ui_title = title
+    self.validate_responses = validate_responses unless validate_responses.nil?
 
     Kemal.config.max_request_body_size = max_request_body_size if max_request_body_size
     Kemal.config.shutdown_timeout = shutdown_timeout if shutdown_timeout
@@ -96,7 +115,26 @@ module Kemal::OpenAPI
 
     discover_operations(force: true)
     handler.invalidate_cache!
+    export_if_requested(handler)
     handler
+  end
+
+  # The current spec as a JSON string, as served at the spec path.
+  def self.spec_json : String
+    (handler.try(&.builder) || Builder.new).to_json
+  end
+
+  # Writes the current spec to *path* as pretty-printed JSON.
+  def self.write_spec(path : String | Path) : Nil
+    discover_operations
+    (handler.try(&.builder) || Builder.new).write(path)
+  end
+
+  private def self.export_if_requested(handler : Handler) : Nil
+    return unless path = ENV[EXPORT_ENV]?.presence
+    handler.builder.write(path)
+    STDOUT.puts "OpenAPI spec written to #{path}"
+    exit 0
   end
 
   # Returns the current handler (if configured).

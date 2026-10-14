@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - Unreleased
+
+### Added
+
+- Query, path, header and cookie parameters are validated against their schemas. String values are converted to the schema type first; failures return `422` with `in` set to the parameter location.
+- `validate_responses` (`Kemal::OpenAPI.validate_responses = true` or `setup(validate_responses: true)`) logs routes whose JSON responses do not match the documented schema.
+- `operationId`s are generated for operations that lack one (`getUsersById`); turn off with `setup(auto_operation_ids: false)`.
+- `register_schema_for(Type)` registers a type and its nested types as components linked by `$ref`; `schema_for` takes `refs: true` for the same behaviour.
+- Spec export: `KEMAL_OPENAPI_EXPORT=openapi.json crystal run src/app.cr`, `Kemal::OpenAPI.write_spec` and `Kemal::OpenAPI.spec_json`.
+- `Kemal::OpenAPI::Registry` for serving several independent API descriptions; `Builder.new(registry:)` and `Validator.validate(..., registry:)` accept one.
+- Nullable `$ref` schemas are emitted as `anyOf: [$ref, {type: null}]`.
+- Ameba linting, Dependabot for GitHub Actions, issue and pull request templates, CONTRIBUTING.md and SECURITY.md.
+
+### Changed
+
+- The handler's spec cache follows the registry's version instead of being invalidated by the module helpers.
+- Validation error objects include an `in` field.
+
+### Fixed
+
+- Route blocks whose argument is `_` did not compile.
+
 ## [0.5.0] - 2026-10-14
 
 ### Added
@@ -53,4 +75,5 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[0.5.0]: https://github.com/erayjsx/kemal-openapi/compare/dc3c0bf...v0.5.0
+[0.6.0]: https://github.com/erayjsx/kemal-openapi/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/erayjsx/kemal-openapi/compare/v0.4.0...v0.5.0
