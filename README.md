@@ -1,7 +1,5 @@
 # kemal-openapi
 
-[![CI](https://github.com/erayjsx/kemal-openapi/actions/workflows/ci.yml/badge.svg)](https://github.com/erayjsx/kemal-openapi/actions/workflows/ci.yml)
-
 OpenAPI 3.1 documentation generator for [Kemal](https://kemalcr.com). Describe your routes with an annotation, and kemal-openapi generates the OpenAPI spec, validates request bodies against it, and serves Swagger UI and ReDoc.
 
 ## Features
@@ -270,7 +268,7 @@ Request bodies of manually registered operations are validated as well. See [`ex
 
 ## Contributing
 
-Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup and checks, and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
+Bug reports and pull requests are welcome.
 
 A note on scope: OpenAPI 3.1 has no way to describe WebSocket routes (`ws`) or Kemal's `QUERY` method, so those routes are left undocumented.
 
