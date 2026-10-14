@@ -6,7 +6,7 @@ Thanks for helping improve kemal-openapi.
 
 ```sh
 shards install
-crystal build lib/ameba/src/cli.cr -o bin/ameba
+mkdir -p bin && crystal build lib/ameba/src/cli.cr -o bin/ameba
 ```
 
 ## Before opening a pull request

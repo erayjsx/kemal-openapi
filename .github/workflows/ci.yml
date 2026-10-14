@@ -24,6 +24,7 @@ jobs:
       - name: ameba
         if: matrix.crystal == 'latest'
         run: |
+          mkdir -p bin
           crystal build lib/ameba/src/cli.cr -o bin/ameba
           bin/ameba
       - run: crystal spec --error-trace
