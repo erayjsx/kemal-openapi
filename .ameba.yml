@@ -1,0 +1,19 @@
+# Configuration for https://github.com/crystal-ameba/ameba
+
+Naming/BlockParameterName:
+  # Single-letter names are idiomatic in short builder and filter blocks.
+  AllowedNames: [a, b, c, e, i, j, k, m, p, r, s, t, u, v, x, y, k1, k2, v1, v2, db, ex, id, io, ip, op, tx, wg, ws]
+
+Naming/QueryBoolMethods:
+  # `required`, `auto_operation_ids` etc. are public API and mirror OpenAPI field names.
+  Enabled: false
+
+Metrics/CyclomaticComplexity:
+  # JSON serialisation and schema validation branch once per OpenAPI keyword.
+  Excluded:
+    - src/kemal-openapi/models/schema.cr
+    - src/kemal-openapi/validator.cr
+
+Lint/NotNil:
+  Excluded:
+    - spec/**
