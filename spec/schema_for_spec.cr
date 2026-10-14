@@ -86,7 +86,7 @@ describe "Kemal::OpenAPI.schema_for" do
   end
 
   it "maps unions to anyOf" do
-    props["value"]["anyOf"].as_a.map { |s| s["type"].as_s }.sort.should eq(["integer", "string"])
+    props["value"]["anyOf"].as_a.map(&.["type"].as_s).sort!.should eq(["integer", "string"])
     props["value"]["type"]?.should be_nil
   end
 
@@ -110,5 +110,47 @@ describe "Kemal::OpenAPI.schema_for" do
     Kemal::OpenAPI::Validator.errors_for(JSON.parse(%({"city": "Izmir"})), schema).should be_empty
     Kemal::OpenAPI::Validator.errors_for(JSON.parse(%({})), schema).map(&.to_s)
       .should eq(["Missing required field: city"])
+  end
+end
+
+class RefTeam
+  include JSON::Serializable
+  property name : String
+  property lead : RefMember
+  property members : Array(RefMember)
+  property parent : RefTeam?
+end
+
+class RefMember
+  include JSON::Serializable
+  property email : String
+end
+
+describe "Kemal::OpenAPI.register_schema_for" do
+  it "registers nested types as components and references them" do
+    registry = Kemal::OpenAPI::Registry.new
+    ref = Kemal::OpenAPI.register_schema_for(RefTeam, registry: registry)
+    ref.ref.should eq("#/components/schemas/RefTeam")
+
+    schemas = JSON.parse(Kemal::OpenAPI::Builder.new(registry: registry).to_json)["components"]["schemas"]
+    schemas.as_h.keys.sort!.should eq(["RefMember", "RefTeam"])
+
+    team = schemas["RefTeam"]["properties"]
+    team["lead"]["$ref"].should eq("#/components/schemas/RefMember")
+    team["members"]["items"]["$ref"].should eq("#/components/schemas/RefMember")
+    team["parent"]["anyOf"].should eq(JSON.parse(%([{"$ref": "#/components/schemas/RefTeam"}, {"type": "null"}])))
+  end
+
+  it "validates data through the registered references" do
+    registry = Kemal::OpenAPI::Registry.new
+    ref = Kemal::OpenAPI.register_schema_for(RefTeam, registry: registry)
+    payload = JSON.parse(%({"name": "core", "lead": {"email": "a@b.c"}, "members": [{}], "parent": null}))
+    Kemal::OpenAPI::Validator.errors_for(payload, ref, registry).map(&.to_s)
+      .should eq(["/members/0: Missing required field: email"])
+  end
+
+  it "accepts a custom name" do
+    registry = Kemal::OpenAPI::Registry.new
+    Kemal::OpenAPI.register_schema_for(RefMember, "Member", registry).ref.should eq("#/components/schemas/Member")
   end
 end

@@ -21,5 +21,11 @@ jobs:
       - run: shards install
       - run: crystal tool format --check
         if: matrix.crystal == 'latest'
+      - name: ameba
+        if: matrix.crystal == 'latest'
+        run: |
+          mkdir -p bin
+          crystal build lib/ameba/src/cli.cr -o bin/ameba
+          bin/ameba
       - run: crystal spec --error-trace
       - run: crystal build --no-codegen example/app.cr

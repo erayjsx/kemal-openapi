@@ -73,7 +73,7 @@ describe Kemal::OpenAPI::Handler do
     )
     handler.builder.info = Kemal::OpenAPI::Info.new(title: "Custom", version: "2.0.0")
 
-    status, headers, body = make_request("GET", "/api/spec.json", handler)
+    _, headers, body = make_request("GET", "/api/spec.json", handler)
     headers["Content-Type"].should eq("application/json")
 
     json = JSON.parse(body)

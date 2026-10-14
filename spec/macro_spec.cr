@@ -66,7 +66,7 @@ describe "@[OpenAPI] annotation" do
 
   it "accepts schema expressions in request_body" do
     body = spec_json["paths"]["/__macro/items"]["post"]["requestBody"]
-    body["required"].should eq(true)
+    body["required"].should be_true
     body["content"]["application/json"]["schema"]["items"]["minLength"].should eq(2)
   end
 
@@ -96,5 +96,26 @@ describe "@[OpenAPI] annotation" do
 
     put "/__macro/files/a/b.txt", HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=x"}, "--x--"
     response.body.should eq("uploaded")
+  end
+end
+
+@[OpenAPI(summary: "Early return")]
+get "/__macro/early" do |env|
+  next "early" if env.request.query_params["stop"]?
+  halt env, status_code: 403, response: "halted" if env.request.query_params["halt"]?
+  "late"
+end
+
+describe "route blocks" do
+  it "support next and halt" do
+    get "/__macro/early?stop=1", nil
+    response.body.should eq("early")
+
+    get "/__macro/early?halt=1", nil
+    response.status_code.should eq(403)
+    response.body.should eq("halted")
+
+    get "/__macro/early", nil
+    response.body.should eq("late")
   end
 end

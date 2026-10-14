@@ -1,44 +1,113 @@
 module Kemal::OpenAPI
-  # Global registry of documented operations.
-  # Annotated routes are added by `register_discovered_operations`; manual
-  # registrations go through `register`.
-  OPERATIONS     = [] of Operation
-  OPERATIONS_MAP = Hash(String, Operation).new
+  # Holds the operations, schema components and security schemes that make up
+  # one API description.
+  #
+  # Most applications use the default registry (`Kemal::OpenAPI.registry`),
+  # which annotated routes and the module-level `register*` helpers write to.
+  # Create more registries to serve several independent API descriptions
+  # from one process:
+  #
+  # ```
+  # admin = Kemal::OpenAPI::Registry.new
+  # admin.register(Kemal::OpenAPI::Operation.new(method: "get", path: "/admin/stats"))
+  #
+  # use Kemal::OpenAPI::Handler.new(
+  #   builder: Kemal::OpenAPI::Builder.new(registry: admin),
+  #   spec_path: "/admin/openapi.json",
+  #   docs_path: "/admin/docs",
+  #   redoc_path: nil
+  # )
+  # ```
+  class Registry
+    getter operations = [] of Operation
+    getter operations_map = Hash(String, Operation).new
+    getter schemas = Hash(String, Schema).new
+    getter security_schemes = Hash(String, SecurityScheme).new
 
-  # Schema registry for reusable component schemas.
-  SCHEMAS = Hash(String, Schema).new
+    # Incremented on every change, so cached specs know when to rebuild.
+    getter version : Int64 = 0
 
-  # Security scheme registry.
-  SECURITY_SCHEMES = Hash(String, SecurityScheme).new
-
-  # Register an operation into the global registry.
-  def self.register(operation : Operation)
-    key = "#{operation.method.upcase} #{operation.path}"
-
-    if OPERATIONS_MAP.has_key?(key)
-      if idx = OPERATIONS.index { |op| "#{op.method.upcase} #{op.path}" == key }
-        OPERATIONS[idx] = operation
-      else
-        OPERATIONS << operation
-      end
-    else
-      OPERATIONS << operation
+    def self.key(method : String, path : String) : String
+      "#{method.upcase} #{path}"
     end
 
-    OPERATIONS_MAP[key] = operation
-    spec_changed
+    # Adds *operation*, replacing any operation with the same method and path.
+    def register(operation : Operation) : Operation
+      key = Registry.key(operation.method, operation.path)
+
+      if @operations_map.has_key?(key) && (idx = @operations.index { |op| Registry.key(op.method, op.path) == key })
+        @operations[idx] = operation
+      else
+        @operations << operation
+      end
+
+      @operations_map[key] = operation
+      changed!
+      operation
+    end
+
+    # Adds a reusable schema under `#/components/schemas/<name>`.
+    def register_schema(name : String, schema : Schema) : Schema
+      @schemas[name] = schema
+      changed!
+      schema
+    end
+
+    # Adds a security scheme under `#/components/securitySchemes/<name>`.
+    def register_security_scheme(name : String, scheme : SecurityScheme) : SecurityScheme
+      @security_schemes[name] = scheme
+      changed!
+      scheme
+    end
+
+    # The operation registered for *method* and *path* (in Kemal syntax).
+    def operation(method : String, path : String) : Operation?
+      @operations_map[Registry.key(method, path)]?
+    end
+
+    # Removes every operation, schema and security scheme.
+    def clear : Nil
+      @operations.clear
+      @operations_map.clear
+      @schemas.clear
+      @security_schemes.clear
+      changed!
+    end
+
+    # Marks the registry as changed. Call this after mutating an operation or
+    # schema in place so cached specs are rebuilt.
+    def changed! : Nil
+      @version += 1
+    end
   end
 
-  # Register a reusable schema component.
-  def self.register_schema(name : String, schema : Schema)
-    SCHEMAS[name] = schema
-    spec_changed
+  DEFAULT_REGISTRY = Registry.new
+
+  # The default registry's collections, kept as constants for backwards
+  # compatibility. They are the same objects as `registry.operations` etc.
+  OPERATIONS       = DEFAULT_REGISTRY.operations
+  OPERATIONS_MAP   = DEFAULT_REGISTRY.operations_map
+  SCHEMAS          = DEFAULT_REGISTRY.schemas
+  SECURITY_SCHEMES = DEFAULT_REGISTRY.security_schemes
+
+  # The default registry used by annotated routes and the helpers below.
+  def self.registry : Registry
+    DEFAULT_REGISTRY
   end
 
-  # Register a security scheme.
-  def self.register_security_scheme(name : String, scheme : SecurityScheme)
-    SECURITY_SCHEMES[name] = scheme
-    spec_changed
+  # Register an operation into the default registry.
+  def self.register(operation : Operation) : Operation
+    registry.register(operation)
+  end
+
+  # Register a reusable schema component in the default registry.
+  def self.register_schema(name : String, schema : Schema) : Schema
+    registry.register_schema(name, schema)
+  end
+
+  # Register a security scheme in the default registry.
+  def self.register_security_scheme(name : String, scheme : SecurityScheme) : SecurityScheme
+    registry.register_security_scheme(name, scheme)
   end
 
   # Registers every route declared with the `@[OpenAPI]` annotation.
@@ -58,9 +127,5 @@ module Kemal::OpenAPI
     return if @@operations_discovered && !force
     @@operations_discovered = true
     register_discovered_operations
-  end
-
-  private def self.spec_changed : Nil
-    @@handler.try &.invalidate_cache!
   end
 end

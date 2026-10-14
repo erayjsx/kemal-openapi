@@ -1,5 +1,5 @@
 name: kemal-openapi
-version: 0.5.0
+version: 0.6.0
 
 authors:
   - Eray can Topcu <erayjsx@gmail.com>
@@ -12,6 +12,11 @@ dependencies:
   kemal:
     github: kemalcr/kemal
     version: ~> 1.14
+
+development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.7.0
 
 crystal: '>= 1.19.1'
 

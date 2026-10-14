@@ -5,7 +5,7 @@ module Kemal::OpenAPI
     # JSON Schema type(s). When left `nil`, `"object"` is assumed unless the
     # schema is a pure composition (`oneOf`/`anyOf`/`allOf`), a `$ref` or an
     # `enum`, in which case no `type` is emitted. See `#effective_type`.
-    property type : String | Array(String) | Nil
+    property type : (String | Array(String))?
     property format : String?
     property items : Schema?
     property properties : Hash(String, Schema)?
@@ -19,7 +19,7 @@ module Kemal::OpenAPI
     property one_of : Array(Schema)?
     property any_of : Array(Schema)?
     property all_of : Array(Schema)?
-    property additional_properties : Schema | Bool | Nil
+    property additional_properties : Schema | Bool?
     property minimum : Float64?
     property maximum : Float64?
     property min_length : Int32?
@@ -72,9 +72,9 @@ module Kemal::OpenAPI
 
     # The type this schema describes, with the implicit `"object"` default
     # applied. Returns `nil` when the schema places no constraint on the type.
-    def effective_type : String | Array(String) | Nil
+    def effective_type : (String | Array(String))?
       return @type if @type
-      return nil if @ref || @one_of || @any_of || @all_of || @enum_values
+      return if @ref || @one_of || @any_of || @all_of || @enum_values
       "object"
     end
 
@@ -88,7 +88,14 @@ module Kemal::OpenAPI
 
     def to_json(builder : JSON::Builder) : Nil
       builder.object do
-        if r = @ref
+        if (r = @ref) && @nullable
+          builder.field("anyOf") do
+            builder.array do
+              builder.object { builder.field("$ref", r) }
+              builder.object { builder.field("type", "null") }
+            end
+          end
+        elsif r = @ref
           builder.field("$ref", r)
         else
           # OpenAPI 3.1 replaces `nullable` with a `"null"` member in `type`.
@@ -124,7 +131,7 @@ module Kemal::OpenAPI
           if req = @required
             builder.field("required") do
               builder.array do
-                req.each { |r| builder.string(r) }
+                req.each { |field| builder.string(field) }
               end
             end
           end
@@ -147,19 +154,19 @@ module Kemal::OpenAPI
 
           if one = @one_of
             builder.field("oneOf") do
-              builder.array { one.each { |s| s.to_json(builder) } }
+              builder.array { one.each(&.to_json(builder)) }
             end
           end
 
           if any = @any_of
             builder.field("anyOf") do
-              builder.array { any.each { |s| s.to_json(builder) } }
+              builder.array { any.each(&.to_json(builder)) }
             end
           end
 
           if all = @all_of
             builder.field("allOf") do
-              builder.array { all.each { |s| s.to_json(builder) } }
+              builder.array { all.each(&.to_json(builder)) }
             end
           end
 

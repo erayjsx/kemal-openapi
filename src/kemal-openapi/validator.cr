@@ -6,11 +6,17 @@ module Kemal::OpenAPI
   class SchemaError < Exception
   end
 
-  # A single validation failure, located with a JSON Pointer
-  # (RFC 6901) into the request body.
-  record ValidationError, pointer : String, message : String do
+  # A single validation failure.
+  #
+  # For the request body (`location` is `"body"`), `pointer` is a JSON Pointer
+  # (RFC 6901) to the offending value. For parameters, `location` is
+  # `"query"`, `"path"`, `"header"` or `"cookie"` and `pointer` is the
+  # parameter name.
+  record ValidationError, pointer : String, message : String, location : String = "body" do
     def to_s(io : IO) : Nil
-      if pointer.empty?
+      if location != "body"
+        io << location << " parameter '" << pointer << "': " << message
+      elsif pointer.empty?
         io << message
       else
         io << pointer << ": " << message
@@ -19,41 +25,54 @@ module Kemal::OpenAPI
 
     def to_json(json : JSON::Builder) : Nil
       json.object do
+        json.field("in", location)
         json.field("pointer", pointer)
         json.field("message", message)
       end
     end
   end
 
-  # Validates incoming request bodies against the documented `RequestBody`
-  # schema of the matching operation.
+  # Validates incoming requests against the documented operation: its
+  # parameters (query, path, header and cookie) and its request body.
   #
   # Only JSON request bodies (`application/json` and `*+json`) are validated
   # against their schema. Other media types (`multipart/form-data`,
   # `application/x-www-form-urlencoded`, ...) are passed through untouched so
   # Kemal can parse them as usual.
   class Validator
+    Log = ::Log.for("kemal.openapi")
+
     @@pattern_cache = Hash(String, Regex).new
 
-    def self.validate(env : HTTP::Server::Context, method : String, path : String) : Bool
-      Kemal::OpenAPI.discover_operations
-
-      operation = OPERATIONS_MAP["#{method.upcase} #{path}"]?
-      return true unless operation
-
-      if body_spec = operation.request_body
-        return validate_body(env, body_spec)
-      end
-
-      true
+    # Validates the request in *env* against the operation registered for
+    # *method* and *path*. Writes an error response and returns `false` when
+    # the request is invalid.
+    def self.validate(
+      env : HTTP::Server::Context,
+      method : String,
+      path : String,
+      registry : Registry = Kemal::OpenAPI.registry,
+    ) : Bool
+      new(registry).validate(env, method, path)
     end
 
     # Validates *json* against *schema* and returns every failure found.
     # Raises `SchemaError` if the schema cannot be resolved.
-    def self.errors_for(json : JSON::Any, schema : Schema) : Array(ValidationError)
-      errors = [] of ValidationError
-      validate_schema(json, schema, "", errors)
-      errors
+    def self.errors_for(json : JSON::Any, schema : Schema, registry : Registry = Kemal::OpenAPI.registry) : Array(ValidationError)
+      new(registry).errors_for(json, schema)
+    end
+
+    # Validates a route's return value against the documented response schema
+    # for the current status code and logs a warning for every mismatch.
+    # Used when `Kemal::OpenAPI.validate_responses` is enabled.
+    def self.check_response(
+      env : HTTP::Server::Context,
+      method : String,
+      path : String,
+      body,
+      registry : Registry = Kemal::OpenAPI.registry,
+    ) : Array(ValidationError)
+      new(registry).check_response(env, method, path, body)
     end
 
     def self.json_media_type?(content_type : String?) : Bool
@@ -62,11 +81,168 @@ module Kemal::OpenAPI
       media_type == "application/json" || media_type.ends_with?("+json")
     end
 
-    private def self.validate_body(env : HTTP::Server::Context, body_spec : RequestBody) : Bool
-      return true unless json_media_type?(body_spec.content_type)
+    def initialize(@registry : Registry = Kemal::OpenAPI.registry)
+    end
+
+    def validate(env : HTTP::Server::Context, method : String, path : String) : Bool
+      Kemal::OpenAPI.discover_operations if @registry.same?(Kemal::OpenAPI.registry)
+
+      operation = @registry.operation(method, path)
+      return true unless operation
+
+      errors = parameter_errors(env, operation)
+      return error(env, 422, errors.first.to_s, errors) unless errors.empty?
+
+      if body_spec = operation.request_body
+        return validate_body(env, body_spec)
+      end
+
+      true
+    end
+
+    def errors_for(json : JSON::Any, schema : Schema) : Array(ValidationError)
+      errors = [] of ValidationError
+      validate_schema(json, schema, "", errors)
+      errors
+    end
+
+    def check_response(env : HTTP::Server::Context, method : String, path : String, body) : Array(ValidationError)
+      errors = [] of ValidationError
+      return errors unless body.is_a?(String)
+      return errors unless operation = @registry.operation(method, path)
+
+      status = env.response.status_code
+      responses = operation.responses
+      response = responses[status.to_s]? || responses["#{status // 100}XX"]? || responses["default"]?
+      return errors unless response && (schema = response.schema)
+      return errors unless Validator.json_media_type?(response.content_type || "application/json")
+
+      json = begin
+        JSON.parse(body)
+      rescue JSON::ParseException
+        errors << ValidationError.new("", "Response body is not valid JSON")
+        log_response_errors(method, path, status, errors)
+        return errors
+      end
+
+      errors = errors_for(json, schema)
+      log_response_errors(method, path, status, errors)
+      errors
+    rescue ex : SchemaError
+      Log.warn { "#{method.upcase} #{path}: #{ex.message}" }
+      [] of ValidationError
+    end
+
+    private def log_response_errors(method : String, path : String, status : Int32, errors : Array(ValidationError)) : Nil
+      errors.each do |e|
+        Log.warn { "Response for #{method.upcase} #{path} (#{status}) does not match its schema: #{e}" }
+      end
+    end
+
+    # Validates query, path, header and cookie parameters. Values arrive as
+    # strings and are coerced to the parameter schema's type first.
+    private def parameter_errors(env : HTTP::Server::Context, operation : Operation) : Array(ValidationError)
+      errors = [] of ValidationError
+      params = operation.parameters
+      return errors unless params
+
+      params.each do |param|
+        values = raw_parameter_values(env, param)
+
+        if values.empty?
+          if param.required
+            errors << ValidationError.new(param.name, "Missing required parameter", param.location)
+          end
+          next
+        end
+
+        next unless schema = param.schema
+        value = coerce_parameter(values, resolve(schema))
+        if value.nil?
+          errors << ValidationError.new(param.name, "Expected #{type_description(resolve(schema))}, got #{values.first.inspect}", param.location)
+          next
+        end
+
+        errors_for(value, schema).each do |e|
+          errors << ValidationError.new(param.name, e.pointer.empty? ? e.message : "#{e.pointer}: #{e.message}", param.location)
+        end
+      end
+
+      errors
+    rescue ex : SchemaError
+      [ValidationError.new("", ex.message || "Invalid schema")]
+    end
+
+    private def raw_parameter_values(env : HTTP::Server::Context, param : Parameter) : Array(String)
+      case param.location
+      when "query"
+        env.request.query_params.fetch_all(param.name)
+      when "path"
+        env.route_lookup.params[param.name]?.try { |v| [URI.decode(v)] } || [] of String
+      when "header"
+        env.request.headers.get?(param.name) || [] of String
+      when "cookie"
+        env.request.cookies[param.name]?.try { |c| [c.value] } || [] of String
+      else
+        [] of String
+      end
+    end
+
+    # Converts raw parameter strings into JSON according to *schema*.
+    # Returns `nil` when a value cannot be converted to the expected type.
+    private def coerce_parameter(values : Array(String), schema : Schema) : JSON::Any?
+      types = schema.type_list || ["string"]
+
+      if types.includes?("array")
+        items = values.size == 1 ? values.first.split(',') : values
+        item_schema = schema.items.try { |i| resolve(i) } || Schema.new(type: "string")
+        coerced = [] of JSON::Any
+        items.each do |item|
+          value = coerce_scalar(item, item_schema.type_list || ["string"])
+          return unless value
+          coerced << value
+        end
+        return JSON::Any.new(coerced)
+      end
+
+      coerce_scalar(values.first, types)
+    end
+
+    private def coerce_scalar(value : String, types : Array(String)) : JSON::Any?
+      types.each do |type|
+        case type
+        when "integer"
+          if int = value.to_i64?
+            return JSON::Any.new(int)
+          end
+        when "number"
+          if float = value.to_f64?
+            return JSON::Any.new(float)
+          end
+        when "boolean"
+          return JSON::Any.new(true) if value == "true"
+          return JSON::Any.new(false) if value == "false"
+        when "null"
+          return JSON::Any.new(nil) if value.empty? || value == "null"
+        when "string"
+          return JSON::Any.new(value)
+        when "object"
+          parsed = JSON.parse(value) rescue nil
+          return parsed if parsed && parsed.raw.is_a?(Hash)
+        end
+      end
+      nil
+    end
+
+    private def type_description(schema : Schema) : String
+      schema.type_list.try(&.join(" or ")) || "a valid value"
+    end
+
+    private def validate_body(env : HTTP::Server::Context, body_spec : RequestBody) : Bool
+      return true unless Validator.json_media_type?(body_spec.content_type)
 
       request_type = env.request.headers["Content-Type"]?
-      if request_type && !json_media_type?(request_type)
+      if request_type && !Validator.json_media_type?(request_type)
         return error(env, 415, "Unsupported Media Type: expected #{body_spec.content_type}")
       end
 
@@ -100,26 +276,26 @@ module Kemal::OpenAPI
 
     # Reads the request body, honouring `Kemal.config.max_request_body_size`.
     # Returns `nil` (after writing a 413 response) when the limit is exceeded.
-    private def self.read_body(env : HTTP::Server::Context) : String?
+    private def read_body(env : HTTP::Server::Context) : String?
       io = env.request.body
       return "" unless io
 
       limit = Kemal.config.max_request_body_size
       if (length = env.request.content_length) && length > limit
         error(env, 413, "Request body too large")
-        return nil
+        return
       end
 
       buffer = IO::Memory.new
       copied = IO.copy(io, buffer, limit + 1)
       if copied > limit
         error(env, 413, "Request body too large")
-        return nil
+        return
       end
       buffer.to_s
     end
 
-    private def self.error(
+    private def error(
       env : HTTP::Server::Context,
       status : Int32,
       message : String,
@@ -139,18 +315,19 @@ module Kemal::OpenAPI
       false
     end
 
-    private def self.resolve(schema : Schema) : Schema
+    private def resolve(schema : Schema) : Schema
       seen = 0
       while ref = schema.ref
         name = ref.lchop("#/components/schemas/")
-        schema = SCHEMAS[name]? || raise SchemaError.new("Schema reference not found: #{ref}")
+        schema = @registry.schemas[name]? || raise SchemaError.new("Schema reference not found: #{ref}")
         seen += 1
         raise SchemaError.new("Circular schema reference: #{ref}") if seen > 32
       end
       schema
     end
 
-    private def self.validate_schema(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+    private def validate_schema(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+      return if json.raw.nil? && schema.nullable
       schema = resolve(schema)
 
       if all = schema.all_of
@@ -204,13 +381,13 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.errors_for_sub(json : JSON::Any, schema : Schema, pointer : String) : Array(ValidationError)
+    private def errors_for_sub(json : JSON::Any, schema : Schema, pointer : String) : Array(ValidationError)
       errors = [] of ValidationError
       validate_schema(json, schema, pointer, errors)
       errors
     end
 
-    private def self.type_matches?(json : JSON::Any, type : String) : Bool
+    private def type_matches?(json : JSON::Any, type : String) : Bool
       case type
       when "object"  then json.raw.is_a?(Hash)
       when "array"   then json.raw.is_a?(Array)
@@ -223,8 +400,8 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.json_type(json : JSON::Any) : String
-      case raw = json.raw
+    private def json_type(json : JSON::Any) : String
+      case json.raw
       when Nil     then "null"
       when Bool    then "boolean"
       when Int64   then "integer"
@@ -235,7 +412,7 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.validate_string(value : String, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+    private def validate_string(value : String, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
       length = value.size
       if (min = schema.min_length) && length < min
         errors << ValidationError.new(pointer, "Must be at least #{min} characters long")
@@ -250,7 +427,7 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.validate_number(value : Float64, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+    private def validate_number(value : Float64, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
       if (min = schema.minimum) && value < min
         errors << ValidationError.new(pointer, "Must be greater than or equal to #{format_number(min)}")
       end
@@ -271,7 +448,7 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.validate_array(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+    private def validate_array(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
       items = json.as_a
       if (min = schema.min_items) && items.size < min
         errors << ValidationError.new(pointer, "Must contain at least #{min} items")
@@ -289,7 +466,7 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.validate_object(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
+    private def validate_object(json : JSON::Any, schema : Schema, pointer : String, errors : Array(ValidationError)) : Nil
       object = json.as_h
       props = schema.properties
 
@@ -315,7 +492,7 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.compile_pattern(pattern : String) : Regex
+    private def compile_pattern(pattern : String) : Regex
       @@pattern_cache[pattern] ||= begin
         Regex.new(pattern)
       rescue ex : ArgumentError
@@ -323,11 +500,11 @@ module Kemal::OpenAPI
       end
     end
 
-    private def self.escape_pointer(key : String) : String
+    private def escape_pointer(key : String) : String
       key.gsub('~', "~0").gsub('/', "~1")
     end
 
-    private def self.format_number(value : Float64) : String
+    private def format_number(value : Float64) : String
       value == value.round ? value.to_i64.to_s : value.to_s
     end
   end

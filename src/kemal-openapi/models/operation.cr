@@ -27,7 +27,11 @@ module Kemal::OpenAPI
     )
     end
 
-    def to_json(builder : JSON::Builder, extra_parameters : Array(Parameter) = [] of Parameter) : Nil
+    def to_json(
+      builder : JSON::Builder,
+      extra_parameters : Array(Parameter) = [] of Parameter,
+      fallback_operation_id : String? = nil,
+    ) : Nil
       builder.object do
         if tags = @tags
           builder.field("tags") do
@@ -37,13 +41,15 @@ module Kemal::OpenAPI
 
         builder.field("summary", @summary) if @summary
         builder.field("description", @description) if @description
-        builder.field("operationId", @operation_id) if @operation_id
+        if id = @operation_id || fallback_operation_id
+          builder.field("operationId", id)
+        end
         builder.field("deprecated", @deprecated) if @deprecated
 
         params = (@parameters || [] of Parameter) + extra_parameters
         unless params.empty?
           builder.field("parameters") do
-            builder.array { params.each { |p| p.to_json(builder) } }
+            builder.array { params.each(&.to_json(builder)) }
           end
         end
 

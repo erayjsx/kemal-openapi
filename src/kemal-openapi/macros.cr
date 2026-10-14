@@ -1,6 +1,12 @@
 require "kemal"
 
 module Kemal::OpenAPI
+  # Runs a route body. Used by the route macros so the body's value can be
+  # captured for response validation.
+  def self.run_route(&)
+    yield
+  end
+
   # Turns the `schema:` value of an `@[OpenAPI]` annotation into a `Schema`:
   #
   # - `"User"` becomes a `$ref` to `#/components/schemas/User`
@@ -8,11 +14,11 @@ module Kemal::OpenAPI
   # - any other expression (e.g. `Kemal::OpenAPI.array_of("User")`) is used as is
   macro schema_from_annotation(value)
     {% if value.is_a?(StringLiteral) %}
-      Kemal::OpenAPI.ref({{value}})
+      Kemal::OpenAPI.ref({{ value }})
     {% elsif value.is_a?(NamedTupleLiteral) %}
-      Kemal::OpenAPI::Schema.new(**{{value}})
+      Kemal::OpenAPI::Schema.new(**{{ value }})
     {% else %}
-      ({{value}}).as(Kemal::OpenAPI::Schema)
+      ({{ value }}).as(Kemal::OpenAPI::Schema)
     {% end %}
   end
 
@@ -24,45 +30,53 @@ module Kemal::OpenAPI
     {% if value.is_a?(ArrayLiteral) && value.all? { |v| v.is_a?(StringLiteral) } %}
       [
         {% for name in value %}
-          { {{name}} => [] of String },
+          { {{ name }} => [] of String },
         {% end %}
       ] of Hash(String, Array(String))
     {% else %}
-      {{value}}
+      {{ value }}
     {% end %}
   end
 end
 
 # Route macros that shadow Kemal's DSL methods. Each route records its method
 # and path in a marker method so `macro finished` below can pair it with the
-# `@[OpenAPI]` annotation placed on the same route, and runs request body
-# validation before the route block.
+# `@[OpenAPI]` annotation placed on the same route, validates the request
+# before the route block runs and, when `validate_responses` is enabled,
+# checks the block's return value against the documented response.
 {% for method in ["get", "post", "put", "delete", "patch", "options"] %}
-  macro {{method.id}}(path, &block)
-    \{% raise "#{{{method}}.id} #{path} requires a block" unless block %}
+  macro {{ method.id }}(path, &block)
+    \{% raise "#{{{ method }}.id} #{path} requires a block" unless block %}
     \{% if path.is_a?(StringLiteral) %}
       \{% suffix = path.gsub(/\//, "_S_").gsub(/:/, "_C_").gsub(/-/, "_D_").gsub(/\./, "_P_").gsub(/\*/, "_G_").gsub(/[^a-zA-Z0-9_]/, "_") %}
-      \{% env_arg = block.args.empty? ? "__kemal_openapi_env".id : block.args.first %}
+      \{% env_arg = block.args.empty? || block.args.first.stringify == "_" ? "__kemal_openapi_env".id : block.args.first %}
 
       # The user's `@[OpenAPI]` annotation attaches to this method.
-      def openapi_user_def_{{method.id}}_\{{suffix.id}}
+      def openapi_user_def_{{ method.id }}_\{{suffix.id}}
       end
 
-      @[Kemal::OpenAPI::Internal(path: \{{path}}, method: {{method}})]
-      def openapi_internal_def_{{method.id}}_\{{suffix.id}}
+      @[Kemal::OpenAPI::Internal(path: \{{path}}, method: {{ method }})]
+      def openapi_internal_def_{{ method.id }}_\{{suffix.id}}
       end
 
-      raise Kemal::Exceptions::InvalidPathStartException.new({{method}}, \{{path}}) unless \{{path}}.starts_with?('/')
+      raise Kemal::Exceptions::InvalidPathStartException.new({{ method }}, \{{path}}) unless \{{path}}.starts_with?('/')
 
-      Kemal::RouteHandler::INSTANCE.add_route({{method.upcase}}, \{{path}}) do |\{{env_arg}}|
-        next unless Kemal::OpenAPI::Validator.validate(\{{env_arg}}, {{method.upcase}}, \{{path}})
-        \{{block.body}}
+      Kemal::RouteHandler::INSTANCE.add_route({{ method.upcase }}, \{{path}}) do |\{{env_arg}}|
+        next unless Kemal::OpenAPI::Validator.validate(\{{env_arg}}, {{ method.upcase }}, \{{path}})
+        # A yielding call (not a proc) keeps `next` and Kemal's `halt` working.
+        %result = Kemal::OpenAPI.run_route do
+          \{{block.body}}
+        end
+        if Kemal::OpenAPI.validate_responses?
+          Kemal::OpenAPI::Validator.check_response(\{{env_arg}}, {{ method.upcase }}, \{{path}}, %result)
+        end
+        %result
       end
     \{% else %}
       # Dynamic paths cannot be documented at compile time; register the route as Kemal would.
       %path = \{{path}}
-      raise Kemal::Exceptions::InvalidPathStartException.new({{method}}, %path) unless %path.starts_with?('/')
-      Kemal::RouteHandler::INSTANCE.add_route({{method.upcase}}, %path) \{{block}}
+      raise Kemal::Exceptions::InvalidPathStartException.new({{ method }}, %path) unless %path.starts_with?('/')
+      Kemal::RouteHandler::INSTANCE.add_route({{ method.upcase }}, %path) \{{block}}
     \{% end %}
   end
 {% end %}
@@ -89,28 +103,28 @@ macro finished
             {% if internal_data %}
               Kemal::OpenAPI.register(
                 Kemal::OpenAPI::Operation.new(
-                  method: {{internal_data[:method]}},
-                  path: {{internal_data[:path]}},
-                  summary: {{ann[:summary] || nil}},
-                  description: {{ann[:description] || nil}},
-                  operation_id: {{ann[:operation_id] || nil}},
-                  tags: {{ann[:tags] || nil}},
-                  deprecated: {{ann[:deprecated] || nil}},
+                  method: {{ internal_data[:method] }},
+                  path: {{ internal_data[:path] }},
+                  summary: {{ ann[:summary] || nil }},
+                  description: {{ ann[:description] || nil }},
+                  operation_id: {{ ann[:operation_id] || nil }},
+                  tags: {{ ann[:tags] || nil }},
+                  deprecated: {{ ann[:deprecated] || nil }},
                   {% if ann[:parameters] %}
-                    parameters: ({{ann[:parameters]}}).as(Array(Kemal::OpenAPI::Parameter)),
+                    parameters: ({{ ann[:parameters] }}).as(Array(Kemal::OpenAPI::Parameter)),
                   {% end %}
                   {% if ann[:security] %}
-                    security: Kemal::OpenAPI.security_from_annotation({{ann[:security]}}),
+                    security: Kemal::OpenAPI.security_from_annotation({{ ann[:security] }}),
                   {% end %}
                   {% if rb = ann[:request_body] %}
                     request_body: Kemal::OpenAPI::RequestBody.new(
                       {% if rb.is_a?(NamedTupleLiteral) %}
-                        description: {{rb[:description] || nil}},
-                        required: {{rb[:required].nil? ? true : rb[:required]}},
-                        content_type: {{rb[:content_type] || "application/json"}},
-                        schema: {% if rb[:schema] %}Kemal::OpenAPI.schema_from_annotation({{rb[:schema]}}){% else %}nil{% end %},
+                        description: {{ rb[:description] || nil }},
+                        required: {{ rb[:required].nil? ? true : rb[:required] }},
+                        content_type: {{ rb[:content_type] || "application/json" }},
+                        schema: {% if rb[:schema] %}Kemal::OpenAPI.schema_from_annotation({{ rb[:schema] }}){% else %}nil{% end %},
                       {% else %}
-                        schema: Kemal::OpenAPI.schema_from_annotation({{rb}}),
+                        schema: Kemal::OpenAPI.schema_from_annotation({{ rb }}),
                       {% end %}
                     ),
                   {% end %}
@@ -124,14 +138,14 @@ macro finished
                           {% key = code.id.stringify %}
                           {% status = key =~ /^\d+$/ ? key.to_i : nil %}
                         {% end %}
-                        {{key}} => Kemal::OpenAPI::Response.new(
-                          status_code: {{status}},
+                        {{ key }} => Kemal::OpenAPI::Response.new(
+                          status_code: {{ status }},
                           {% if value.is_a?(NamedTupleLiteral) %}
-                            description: {{value[:description] || "Response"}},
-                            content_type: {{value[:content_type] || nil}},
-                            schema: {% if value[:schema] %}Kemal::OpenAPI.schema_from_annotation({{value[:schema]}}){% else %}nil{% end %},
+                            description: {{ value[:description] || "Response" }},
+                            content_type: {{ value[:content_type] || nil }},
+                            schema: {% if value[:schema] %}Kemal::OpenAPI.schema_from_annotation({{ value[:schema] }}){% else %}nil{% end %},
                           {% else %}
-                            description: {{value}},
+                            description: {{ value }},
                           {% end %}
                         ),
                       {% end %}
